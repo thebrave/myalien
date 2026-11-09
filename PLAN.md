@@ -17,9 +17,25 @@ no direct EC/SMI/port I/O. Everything goes through firmware interfaces that Wind
 | Other Dell ACPI-WMI | `BIOSEvent` `{9DBB5994-…}` (hotkey / BIOS events — e.g. Fn shortcuts, adapter events), `WMI_Query` `{8D9DDCBC-…}` (descriptor), `BFn.DoBFn` `{A80593CE-…}` (SMBIOS/SMI calling interface — **never used**). |
 | Dell software | MyDell 2.2.6 (Appx) + `FusionService` (running) — this is what currently drives thermal modes. `root\dcdbas` driver present (we will **not** use it). |
 
-### 1b. Phase 0 results (confirmed, elevated, BIOS 1.44.0, SKU 0B56, MyDell running)
+### 1b. Phase 0 results (confirmed, elevated, BIOS 1.44.0, SKU 0B56)
 
-Dumps: `docs/discovery/discovery-mydell-running-20261109-*.json`.
+Dumps: `docs/discovery/discovery-mydell-running-20261109-*.json` (FusionService running) and
+`docs/discovery/discovery-fusion-stopped-20261109-201722.json` (FusionService stopped).
+**Everything below is identical with Fusion stopped**: same WMAX instance, resource IDs, profiles, readings, BIOS attributes.
+The firmware interfaces do not depend on MyDell → standalone mode is viable.
+
+**`AWThermalManagement` mirrors the active WMAX profile** (all 3 dumps):
+
+| WMAX current profile | `AWThermalManagement` |
+|---|---|
+| `0xA0` Balanced | Balanced |
+| `0xA5` Low-Power | Battery |
+| `0xA3` Quiet | Quiet (inferred) |
+| `0xA1` Balanced-Performance | Performance (inferred) |
+
+So the firmware itself persists the last-activated profile in a BIOS setting, which very likely means it survives reboot
+without any software. Consequence: the service probably does **not** need to re-apply the profile at boot — to verify in Phase 1
+(set a profile, reboot with Fusion stopped, read it back). G-Mode and Custom/fan-boost are not covered by this attribute and may still need re-applying.
 
 **WMAX** — instance `ACPI\PNP0C14\AWCC_0`. System description `0x04000202` → 2 fans, 2 sensors, 0 unknown, 4 profiles.
 
@@ -43,7 +59,7 @@ Dumps: `docs/discovery/discovery-mydell-running-20261109-*.json`.
 | `CustomChargeStart` | 50 | 50..95 |
 | `CustomChargeStop` | 80 | 55..100 |
 | `AdvBatteryChargeCfg` | Disabled | Disabled, Enabled (Advanced Battery Charge mode — schedule-based, Dell-specific) |
-| `AWThermalManagement` | Battery | Balanced, Battery, Quiet, Performance — BIOS-level default thermal mode (likely what firmware applies at boot; "Battery" ↔ `0xA5` Low-Power?) |
+| `AWThermalManagement` | Battery / Balanced | Balanced, Battery, Quiet, Performance — mirrors the active WMAX profile (see above) |
 | `UsbPowerShare`, `WakeOnAc`, `TurboMode` | — | out of scope, read-only display at most |
 
 Windows-side method: `BIOSAttributeInterface.SetAttribute(string AttributeName, string AttributeValue, uint8[] SecHandle, uint32 SecHndCount, uint32 SecType, out sint32 Status)` (+ `SetAttributes`, `SetDefaultValue`, `GetHelpString`).
@@ -165,7 +181,7 @@ Still to verify in Phase 1 (first writes, one at a time, with MyDell open to cro
 * G-Mode: GameShift toggle + `0xAB` (Linux G-series sequence) — and how MyDell reflects it.
 * Custom `0x00` + fan boost: meaning of the value (0–255 raw vs %), whether firmware resets it on profile change / resume.
 * `SetAttribute` on `PrimaryBattChargeCfg` / `CustomChargeStart/Stop`: applies immediately or after reboot? Ordering rule when changing both thresholds (stop − start ≥ 5 must hold at every step).
-* Role of `AWThermalManagement` vs the WMAX profile (boot default? does writing WMAX change it?) — read-only until understood.
+* `AWThermalManagement`: confirm the Quiet/Performance mapping, that a WMAX profile change updates it immediately, and that the profile survives reboot with Fusion stopped. Never written by MyAlien (WMAX is the write path); read-only.
 * If a BIOS admin password is set later, it must be prompted for each write, never stored.
 * Safety: never send undocumented ops; never touch OC/GPIO/Caldera/Tobii/BFn methods.
 
