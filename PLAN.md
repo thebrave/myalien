@@ -10,27 +10,28 @@ no direct EC/SMI/port I/O. Everything goes through firmware interfaces that Wind
 | Item | Finding |
 |---|---|
 | Model / BIOS | `Dell G15 5520`, SKU `0B56`, BIOS **1.44.0** (08/26/2026) |
-| AWCC "WMAX" interface | `root\wmi : AWCCWmiMethodFunction`, GUID `{A70591CE-A997-11DA-B012-B622A1EF5492}`, instance `ACPI\PNP0C14\AWCC_0` (inbox ACPI-WMI device; no Dell driver needed). Methods include `Thermal_Information`, `Thermal_Control`, `GetFanSensors`, `GameShiftStatus`, `PowerInformation`, `SystemInformation`. All three dumps were elevated. A non-admin denial was not captured. |
-| Dell BIOS attributes over WMI | `root\dcim\sysman\biosattributes` : `EnumerationAttribute`, `IntegerAttribute`, `StringAttribute`, `BIOSAttributeInterface` (SetAttribute). Confirmed attributes in section 1b. |
-| Battery (inbox) | `BatteryStatus`, `BatteryFullChargedCapacity`, `BatteryRuntime`, and `Win32_Battery` respond. `BatteryStaticData` fails even elevated. `BatteryCycleCount` returns 0. `BatteryTemperature` returns no instances. |
-| Thermal (inbox) | `MSAcpi_ThermalZoneTemperature` is registered but `Get-CimInstance` returns "not supported". Temps come from WMAX. Intel IPF was **not** checked by the discovery script. |
+| AWCC "WMAX" interface | `root\wmi : AWCCWmiMethodFunction`, GUID `{A70591CE-A997-11DA-B012-B622A1EF5492}`, instance `ACPI\PNP0C14\AWCC_0` (inbox `wmiacpi.sys` / `wmiprov.dll`; no Dell driver needed). Methods include `Thermal_Information`, `Thermal_Control`, `GetFanSensors`, `GameShiftStatus`, `PowerInformation`, `SystemInformation`. Instance access **requires admin** (non-elevated reads fail with `WBEM_E_ACCESS_DENIED`). |
+| Dell BIOS attributes over WMI | `root\dcim\sysman\biosattributes` : `EnumerationAttribute` (`{F1DDEE52-…-9BF5}`), `IntegerAttribute` (`…-9BFA`), `StringAttribute` (`…-9BF9`), `BIOSAttributeInterface` (`…-9BF4`, instance `ACPI\PNP0C14\WBAT_0`, `SetAttribute`). Served by `Provider_PlatformBios` (`{D2D588B5-…}` = inbox `wmiprov.dll` over `wmiacpi.sys`, no Dell DLL/driver). Instance access **requires admin**. Confirmed attributes in section 1b. |
+| Battery (inbox) | `BatteryStatus`, `BatteryFullChargedCapacity`, `BatteryRuntime`, and `Win32_Battery` respond. `BatteryStaticData` fails even elevated, but `IOCTL_BATTERY_QUERY_INFORMATION` (`BatteryInformation`) succeeds non-elevated and reports `DesignedCapacity = 84280` mWh (`FullChargedCapacity = 66770` mWh → **79.2%** health, `Chemistry = LiP`). `CycleCount` is 0 in both WMI and IOCTL. `BatteryTemperature` returns no instances in WMI and `ERROR_INVALID_FUNCTION` (1) via IOCTL. |
+| Thermal (inbox) | `MSAcpi_ThermalZoneTemperature` is registered but `Get-CimInstance` returns "not supported". Temps come from WMAX. Intel IPF (`Intel(R) Innovation Platform Framework Manager` + 6 `Generic Participant` devices, `EsifWmiEvent` in `root\wmi`) is present. |
 | Other Dell ACPI-WMI | `BIOSEvent` `{9DBB5994-…}` (class exists; the watch recorded no events), `WMI_Query` `{8D9DDCBC-…}` (descriptor), `BFn.DoBFn` `{A80593CE-…}` (SMBIOS/SMI calling interface — **never used**). |
-| Dell software | MyDell 2.2.6.0 (Appx) stays installed. `FusionService` was Running in the first two dumps and Stopped (start mode Auto) in the third. WMAX reads work in both states. `root\dcdbas` was **not** checked (and will not be used). |
+| Dell software | MyDell 2.2.6.0 (Appx) stays installed. `FusionService` was Running in the first two dumps and Stopped (start mode Auto) in the third. WMAX reads work in both states. Kernel driver `dcdbas.sys` is installed and Running (`root\Dell` namespace exists, `DellInstrumentation` driver Stopped); we do **not** use either. |
 
 ### 1b. Phase 0 results (confirmed, elevated, BIOS 1.44.0, SKU 0B56)
 
-Dumps: `docs/discovery/discovery-mydell-running-20261109-200659.json` and `...-200741.json` (`FusionService` running),
+Dumps: `docs/discovery/discovery-mydell-running-20261109-200659.json`, `...-200741.json`, and `...-203752.json` (`FusionService` running),
 and `docs/discovery/discovery-fusion-stopped-20261109-201722.json` (`FusionService` stopped, MyDell package still installed).
 
 **WMAX reads do not need Fusion.** With the service stopped, the same instance, method list, system description, resource IDs, profile list, op `0x0A` = `0xA0`, and GameShift 0 still come back, including live RPM. That does not show that profile writes, re-apply, or a fan curve work standalone.
 
-**`AWThermalManagement` tracked the live WMAX profile** in the three snapshots (all on AC):
+**`AWThermalManagement` tracked the live WMAX profile** in the four snapshots (all on AC):
 
 | When | WMAX current profile | `AWThermalManagement` |
 |---|---|---|
-| 19:06:59Z, Fusion running | `0xA0` Balanced | Balanced |
+| 19:06:22Z, Fusion running | `0xA0` Balanced | Balanced |
 | 19:07:04Z, Fusion running | `0xA5` Low-Power | Battery |
 | 19:16:45Z, Fusion stopped | `0xA0` Balanced | Balanced |
+| 19:37:15Z, Fusion running | `0xA0` Balanced | Balanced |
 
 Quiet and Performance were not observed, so `0xA3` and `0xA1` are not mapped to those BIOS strings yet. Kernel calls `0xA1` USTT Balanced-Performance; that is the spec name, not this machine's BIOS label. The return to Balanced happened in the same interval as stopping Fusion. The dumps cannot tell a mode change made before the stop from a reset caused by the stop, and they do not show that the BIOS attribute survives reboot. G-Mode and Custom/fan-boost are not values of this attribute.
 
@@ -38,15 +39,15 @@ Quiet and Performance were not observed, so `0xA3` and `0xA1` are not mapped to 
 
 | Resource | ID (raw) | Notes |
 |---|---|---|
-| Fan CPU_1 | `0x32` | max 4800 rpm, min reported 0, linked sensor `0x01`. Fusion running: ~2200–2500 rpm. Fusion stopped: 879 rpm |
-| Fan GPU_1 | `0x33` | max 4800 rpm, min 0, linked sensor `0x06`. Fusion running: ~2500–2800 rpm. Fusion stopped: 416 rpm |
-| Sensor CPU | `0x01` (raw `0x0101`) | °C. Bit 8 is `AWCC_SENSOR_ID_FLAG`; the type is the low byte. Fusion running: 82°C then 50°C. Fusion stopped: 55°C |
-| Sensor GPU | `0x06` (raw `0x0106`) | °C, same flag. Fusion running: 44°C. Fusion stopped: 50°C |
+| Fan CPU_1 | `0x32` | max 4800 rpm, min reported 0, linked sensor `0x01`. Fusion running: 2469 / 2226 rpm (hot/warm), 590 rpm (at 55°C). Fusion stopped: 879 rpm (at 55°C) |
+| Fan GPU_1 | `0x33` | max 4800 rpm, min 0, linked sensor `0x06`. Fusion running: 2770 / 2501 rpm, 672 rpm (at 49°C). Fusion stopped: 416 rpm (at 50°C) |
+| Sensor CPU | `0x01` (raw `0x0101`) | °C. Bit 8 is `AWCC_SENSOR_ID_FLAG`; the type is the low byte. Fusion running: 82°C, 50°C, 55°C. Fusion stopped: 55°C |
+| Sensor GPU | `0x06` (raw `0x0106`) | °C, same flag. Fusion running: 44°C, 44°C, 49°C. Fusion stopped: 50°C |
 | Profiles | `0xA0`, `0xA1`, `0xA5`, `0xA3` | **USTT** family. Kernel names: Balanced, Balanced-Performance, Low-Power, Quiet. No Cool (`0xA2`) and no USTT Performance (`0xA4`). G-Mode `0xAB` is not enumerated; `GameShiftStatus` answers (0 = off), which is the kernel's G-series signal. Custom `0x00` is not enumerated either. Both are untested writes. |
 
-* Fan percentage (op 0x06) → `0xFFFFFFFE` (unsupported) on both fans, with and without Fusion. Fan boost reads 0. That is a current value of 0, not proof the op is unsupported. Kernel stores boost as a `u8` (0–255); tcc-g15 calls the same op an addon percent. Units stay unverified.
+* Fan percentage (op 0x06) → `0xFFFFFFFE` (unsupported, `error = true`) on both fans, with and without Fusion. Fan boost reads 0. That is a current value of 0, not proof the op is unsupported. Kernel stores boost as a `u8` (0–255); tcc-g15 calls the same op an addon percent. Units stay unverified.
 * Op 0x0A (balanced profile ID) → `0xA0` in every dump.
-* The live profile changed between snapshots (see the table above), including once while Fusion was stopped. Hardware stays the source of truth. The lower RPM in the stopped dump matches that cooler snapshot; it is not evidence that stopping Fusion changed the fan curve.
+* The live profile changed between snapshots (see the table above), including once while Fusion was stopped. Hardware stays the source of truth. The 203752 dump (Fusion running, CPU 55°C / GPU 49°C, 590 / 672 rpm) confirms that the low RPM (~400–900 rpm) at ~50–55°C is the normal firmware Balanced fan curve, whether Fusion is running or stopped.
 
 **BIOS attributes** (110 attributes). `PasswordObject` reports `IsPasswordSet=0` for Admin, System, and a third object with an empty name. The no-password `SetAttribute` buffer (`SecType=0`, `SecHndCount=0`, `SecHandle=[]`) was not observed, because the script never calls `SetAttribute`.
 
@@ -59,11 +60,11 @@ Quiet and Performance were not observed, so `0xA3` and `0xA1` are not mapped to 
 | `AWThermalManagement` | see table above | Balanced, Battery, Quiet, Performance |
 | `UsbPowerShare`, `WakeOnAc`, `TurboMode` | — | out of scope, read-only display at most |
 
-Windows-side method: `BIOSAttributeInterface.SetAttribute(string AttributeName, string AttributeValue, uint8[] SecHandle, uint32 SecHndCount, uint32 SecType, out sint32 Status)` (+ `SetAttributes`, `SetDefaultValue`, `GetHelpString`).
+Windows-side method: `BIOSAttributeInterface.SetAttribute(string AttributeName, string AttributeValue, uint8[] SecHandle, uint32 SecHndCount, uint32 SecType, out sint32 Status)` (+ `SetAttributes`, `SetDefaultValue`, `GetHelpString`). Note: `SetAttribute` (`WmiMethodId=4`) is an **instance** method on `BIOSAttributeInterface` (active instance `ACPI\PNP0C14\WBAT_0`, not `Static`), and `EnumerationAttribute` / `IntegerAttribute` expose `CurrentValue` only (no `PendingValue` property). In COM, pass a valid `VT_ARRAY | VT_UI1` `SAFEARRAY` for `SecHandle` even when `SecHndCount = 0`.
 
-**Battery** — `Win32_Battery` name `DELL 70N2F32`, chemistry code 2 (Unknown), design voltage 12432 mV. Full charge and remaining capacity 66770 mWh, on AC, estimated charge 100%, charge and discharge rate 0, in every dump. `BatteryStaticData` fails with a generic error even elevated and with Fusion stopped, so the script never computed a design capacity or a health percent. The 84280 mWh / ~79% figure is not in these dumps. `CycleCount` is 0 (do not display it until a report shows a real count). `BatteryTemperature` has no instances. `BatteryRuntime` is `0xFFFFFFFF` while on AC. Use `IOCTL_BATTERY_QUERY_INFORMATION` (as `powercfg /batteryreport` does) for design capacity.
+**Battery** — `Win32_Battery` name `DELL 70N2F32`, chemistry code 2 (Unknown), design voltage 12432–12445 mV. Full charge and remaining capacity 66770 mWh, on AC, estimated charge 100%, charge and discharge rate 0, in every dump. `BatteryStaticData` fails with a generic error even elevated and with Fusion stopped, but `IOCTL_BATTERY_QUERY_INFORMATION` (`BatteryInformation` on `\\?\acpi#pnp0c0a#1#{72631e54-78a4-11d0-bcf7-00aa00b7b32a}`) succeeds even non-elevated and returns `DesignedCapacity = 84280` mWh, `FullChargedCapacity = 66770` mWh (**79.2%** health), `Chemistry = LiP`, `Technology = 1`, `CycleCount = 0`. Do not display cycle count until a report shows a non-zero count. `BatteryTemperature` has no WMI instances and fails via IOCTL (`ERROR_INVALID_FUNCTION`). `BatteryRuntime` is `0xFFFFFFFF` while on AC.
 
-**Not available**: `MSAcpi_ThermalZoneTemperature` (class present, instances unsupported) → temps come from WMAX only. `biosEvents` is JSON null in all three dumps, which means the watch ran and recorded nothing. The JSON does not say how long it ran or that a key was pressed. Do not rely on `BIOSEvent` for hotkeys or adapter changes; use Windows power notifications.
+**Not available**: `MSAcpi_ThermalZoneTemperature` (class present, instances unsupported) → temps come from WMAX only. `biosEvents` is JSON null in the first three dumps and `{"watchedSeconds": 30, "count": 0, "events": []}` in the fourth (`203752`). Note: the 5520's physical G-key is **F9** (`Fn+F9`); re-test whether pressing `Fn+F9` emits a `BIOSEvent` or keycode, and use Windows power notifications for adapter/power changes.
 
 ## 2. Reference specs (open source)
 
@@ -99,7 +100,7 @@ G-Mode on G-series: toggle GameShift to match, then activate `0xAB` (Linux logic
 **Thermal**
 1. Show live CPU/GPU temps and fan RPM (+ min/max).
 2. Select a thermal profile from the IDs the firmware enumerates (`0xA0`, `0xA1`, `0xA5`, `0xA3`). G-Mode `0xAB` and Custom `0x00` stay off the menu until a Phase 1 write shows they stick.
-3. G-Mode on/off (software only — the 5520 has no G-key; a tray menu item and an optional global hotkey via `RegisterHotKey`).
+3. G-Mode on/off (tray menu item + optional global hotkey via `RegisterHotKey`; also check in Phase 1 how the physical **F9 / `Fn+F9` Game Shift key** on the 5520 surfaces when `FusionService` is stopped).
 4. Custom mode: per-fan boost (manual), later an optional temperature→boost curve run by the service.
 5. Optional: link thermal profile to Windows power mode (Best efficiency / Balanced / Best performance via `PowerGetEffectiveOverlayScheme` / `PowerSetActiveOverlayScheme`) and/or AC vs battery.
 6. Re-apply chosen profile at boot and after resume (firmware may reset it).

@@ -28,7 +28,7 @@
 
 .PARAMETER WatchEventsSeconds
     If > 0, also listen to Dell's BIOSEvent (root\wmi, GUID 9DBB5994-...) for that many seconds and record
-    every event payload - press Fn shortcuts (e.g. Fn+F-keys) and plug/unplug the adapter meanwhile. Read-only.
+    every event payload - press Fn shortcuts (especially Fn+F9 / F9 Game Shift G-key) and plug/unplug the adapter meanwhile. Read-only.
 
 .EXAMPLE
     # From an elevated PowerShell:
@@ -75,18 +75,18 @@ $WmaxReadAllow = @{
 
 $script:Wmax = $null
 
-function Invoke-WmaxRead([string]$method, [int]$op, [int]$a1 = 0, [int]$a2 = 0) {
+function Invoke-WmaxRead([string]$method, [int]$op, [int]$a1 = 0, [int]$a2 = 0, [int]$a3 = 0) {
     if (-not $WmaxReadAllow.ContainsKey($method) -or ($WmaxReadAllow[$method] -notcontains $op)) {
         throw "Refusing non-allow-listed WMAX call $method op $(Hex $op)"
     }
-    $arg = [uint32](($op -band 0xFF) -bor (($a1 -band 0xFF) -shl 8) -bor (($a2 -band 0xFF) -shl 16))
+    $arg = [uint32](($op -band 0xFF) -bor (($a1 -band 0xFF) -shl 8) -bor (($a2 -band 0xFF) -shl 16) -bor (($a3 -band 0xFF) -shl 24))
     $r = Invoke-CimMethod -InputObject $script:Wmax -MethodName $method -Arguments @{ arg2 = $arg }
     $v = [uint32]$r.argr
     [ordered]@{
         arg2  = Hex $arg 8
         argr  = Hex $v 8
         value = $v
-        error = ($v -eq 0xFFFFFFFF -or $v -eq 0xFFFFFFFE)
+        error = ($v -eq [uint32]::MaxValue -or $v -eq ([uint32]::MaxValue - 1))
     }
 }
 
@@ -280,12 +280,15 @@ $dump.biosAttributes = Section 'Dell BIOS attributes' {
         Write-Host "   $($m.AttributeName) = $($m.CurrentValue)$pv"
     }
     $iface = Get-CimClass -Namespace $ns -ClassName BIOSAttributeInterface
+    $ifaceInstances = @(Get-CimInstance -Namespace $ns -ClassName BIOSAttributeInterface -ErrorAction SilentlyContinue |
+        ForEach-Object { [ordered]@{ instanceName = $_.InstanceName; active = $_.Active } })
     [ordered]@{
-        attributeCount    = $names.Count
-        allAttributeNames = $names
-        interesting       = $matching
-        all               = $all
-        interfaceMethods  = @($iface.CimClassMethods | ForEach-Object {
+        attributeCount     = $names.Count
+        allAttributeNames  = $names
+        interesting        = $matching
+        all                = $all
+        interfaceInstances = $ifaceInstances
+        interfaceMethods   = @($iface.CimClassMethods | ForEach-Object {
             [ordered]@{
                 name   = $_.Name
                 params = @($_.Parameters | ForEach-Object {
@@ -330,7 +333,60 @@ $dump.battery = Section 'Battery (inbox)' {
     }
     $r.Win32_Battery = @(Get-CimInstance Win32_Battery | ForEach-Object { Props $_ })
     try {
-        $design = ($r.BatteryStaticData | Select-Object -First 1).DesignedCapacity
+        Add-Type -Namespace MyAlien -Name BatteryIoctl -MemberDefinition @'
+static Guid GUID_DEVCLASS_BATTERY = new Guid(0x72631e54, 0x78a4, 0x11d0, 0xbc, 0xf7, 0x00, 0xaa, 0x00, 0xb7, 0xb3, 0x2a);
+[StructLayout(LayoutKind.Sequential)] struct SP_DEVICE_INTERFACE_DATA { public int cbSize; public Guid InterfaceClassGuid; public int Flags; public IntPtr Reserved; }
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] struct SP_DEVICE_INTERFACE_DETAIL_DATA { public int cbSize; [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string DevicePath; }
+[StructLayout(LayoutKind.Sequential)] struct BATTERY_QUERY_INFORMATION { public uint BatteryTag; public int InformationLevel; public int AtRate; }
+[StructLayout(LayoutKind.Sequential)] public struct BATTERY_INFORMATION {
+    public uint Capabilities; public byte Technology;
+    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 3)] public byte[] Reserved;
+    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)] public byte[] Chemistry;
+    public uint DesignedCapacity; public uint FullChargedCapacity; public uint DefaultAlert1; public uint DefaultAlert2; public uint CriticalBias; public uint CycleCount;
+}
+[DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern IntPtr SetupDiGetClassDevs(ref Guid ClassGuid, IntPtr Enumerator, IntPtr hwndParent, uint Flags);
+[DllImport("setupapi.dll", SetLastError = true)] static extern bool SetupDiEnumDeviceInterfaces(IntPtr hDevInfo, IntPtr devInfo, ref Guid interfaceClassGuid, uint memberIndex, ref SP_DEVICE_INTERFACE_DATA deviceInterfaceData);
+[DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern bool SetupDiGetDeviceInterfaceDetail(IntPtr hDevInfo, ref SP_DEVICE_INTERFACE_DATA deviceInterfaceData, ref SP_DEVICE_INTERFACE_DETAIL_DATA deviceInterfaceDetailData, int deviceInterfaceDetailDataSize, out int requiredSize, IntPtr deviceInfoData);
+[DllImport("setupapi.dll", SetLastError = true)] static extern bool SetupDiDestroyDeviceInfoList(IntPtr hDevInfo);
+[DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern Microsoft.Win32.SafeHandles.SafeFileHandle CreateFile(string lpFileName, uint dwDesiredAccess, uint dwShareMode, IntPtr lpSecurityAttributes, uint dwCreationDisposition, uint dwFlagsAndAttributes, IntPtr hTemplateFile);
+[DllImport("kernel32.dll", SetLastError = true)] static extern bool DeviceIoControl(Microsoft.Win32.SafeHandles.SafeFileHandle hDevice, uint dwIoControlCode, ref uint InBuffer, int nInBufferSize, out uint OutBuffer, int nOutBufferSize, out int pBytesReturned, IntPtr lpOverlapped);
+[DllImport("kernel32.dll", SetLastError = true)] static extern bool DeviceIoControl(Microsoft.Win32.SafeHandles.SafeFileHandle hDevice, uint dwIoControlCode, ref BATTERY_QUERY_INFORMATION InBuffer, int nInBufferSize, out BATTERY_INFORMATION OutBuffer, int nOutBufferSize, out int pBytesReturned, IntPtr lpOverlapped);
+public static BATTERY_INFORMATION QueryFirst(out string devPath) {
+    devPath = null;
+    IntPtr hDev = SetupDiGetClassDevs(ref GUID_DEVCLASS_BATTERY, IntPtr.Zero, IntPtr.Zero, 0x12);
+    try {
+        SP_DEVICE_INTERFACE_DATA did = new SP_DEVICE_INTERFACE_DATA(); did.cbSize = Marshal.SizeOf(did);
+        if (!SetupDiEnumDeviceInterfaces(hDev, IntPtr.Zero, ref GUID_DEVCLASS_BATTERY, 0, ref did)) throw new System.ComponentModel.Win32Exception();
+        SP_DEVICE_INTERFACE_DETAIL_DATA detail = new SP_DEVICE_INTERFACE_DETAIL_DATA(); detail.cbSize = IntPtr.Size == 8 ? 8 : 6;
+        int req; SetupDiGetDeviceInterfaceDetail(hDev, ref did, ref detail, Marshal.SizeOf(detail), out req, IntPtr.Zero);
+        devPath = detail.DevicePath;
+        using (var hBatt = CreateFile(devPath, 0xC0000000u, 3, IntPtr.Zero, 3, 0, IntPtr.Zero)) {
+            uint wait = 0, tag = 0; int br;
+            if (!DeviceIoControl(hBatt, 0x294040u, ref wait, 4, out tag, 4, out br, IntPtr.Zero)) throw new System.ComponentModel.Win32Exception();
+            BATTERY_QUERY_INFORMATION bqi = new BATTERY_QUERY_INFORMATION { BatteryTag = tag, InformationLevel = 0 };
+            BATTERY_INFORMATION bi;
+            if (!DeviceIoControl(hBatt, 0x294044u, ref bqi, Marshal.SizeOf(bqi), out bi, Marshal.SizeOf(typeof(BATTERY_INFORMATION)), out br, IntPtr.Zero)) throw new System.ComponentModel.Win32Exception();
+            return bi;
+        }
+    } finally { SetupDiDestroyDeviceInfoList(hDev); }
+}
+'@ -ErrorAction SilentlyContinue
+        $devPath = $null
+        $bi = [MyAlien.BatteryIoctl]::QueryFirst([ref]$devPath)
+        $chem = ([System.Text.Encoding]::ASCII.GetString($bi.Chemistry)).Trim([char]0, ' ')
+        $r.ioctlBatteryInformation = [ordered]@{
+            devicePath          = $devPath
+            designedCapacity    = $bi.DesignedCapacity
+            fullChargedCapacity = $bi.FullChargedCapacity
+            cycleCount          = $bi.CycleCount
+            chemistry           = $chem
+            technology          = $bi.Technology
+            capabilities        = Hex $bi.Capabilities 8
+        }
+    } catch { $r.ioctlBatteryInformation = "error: $($_.Exception.Message)" }
+    try {
+        $design = if ($r.ioctlBatteryInformation -is [System.Collections.IDictionary]) { $r.ioctlBatteryInformation.designedCapacity }
+                  else { ($r.BatteryStaticData | Select-Object -First 1).DesignedCapacity }
         $full = ($r.BatteryFullChargedCapacity | Select-Object -First 1).FullChargedCapacity
         if ($design) {
             $r.summary = [ordered]@{ designedmWh = $design; fullChargedmWh = $full; healthPercent = [math]::Round(100.0 * $full / $design, 1) }
@@ -389,7 +445,7 @@ $dump.dellWmiClassDefs = Section 'Dell WMI class definitions (BFn, WMI_Query, BI
 
 # Optional: watch Dell BIOS events (Fn hotkeys / power-adapter events) for N seconds. Read-only.
 if ($WatchEventsSeconds -gt 0) {
-    $dump.biosEvents = Section "Watching root\wmi BIOSEvent for $WatchEventsSeconds s - press Fn shortcuts / plug or unplug the adapter now" {
+    $dump.biosEvents = Section "Watching root\wmi BIOSEvent for $WatchEventsSeconds s - press Fn+F9 (G-key) / Fn shortcuts / plug or unplug the adapter now" {
         $srcId = 'MyAlienBiosEvent'
         Register-CimIndicationEvent -Namespace root\wmi -ClassName BIOSEvent -SourceIdentifier $srcId | Out-Null
         $events = @()
@@ -419,7 +475,11 @@ if ($WatchEventsSeconds -gt 0) {
         } finally {
             Unregister-Event -SourceIdentifier $srcId -ErrorAction SilentlyContinue
         }
-        $events
+        [ordered]@{
+            watchedSeconds = $WatchEventsSeconds
+            count          = $events.Count
+            events         = @($events)
+        }
     }
 }
 
