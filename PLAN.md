@@ -9,64 +9,61 @@ no direct EC/SMI/port I/O. Everything goes through firmware interfaces that Wind
 
 | Item | Finding |
 |---|---|
-| Model / BIOS | `Dell G15 5520`, BIOS 1.43.0 |
-| AWCC "WMAX" interface | `root\wmi : AWCCWmiMethodFunction`, GUID `{A70591CE-A997-11DA-B012-B622A1EF5492}`, served by the inbox Microsoft ACPI-WMI driver (no Dell driver needed). Methods include `Thermal_Information`, `Thermal_Control`, `GetFanSensors`, `GameShiftStatus`, `PowerInformation`, `SystemInformation`. Instance access **requires admin**. |
-| Dell BIOS attributes over WMI | `root\dcim\sysman\biosattributes` : `EnumerationAttribute`, `IntegerAttribute`, `StringAttribute`, `BIOSAttributeInterface` (SetAttribute). Requires admin. Expected to carry `PrimaryBattChargeCfg`, `CustomChargeStart`, `CustomChargeStop` (not verified yet). |
-| Battery (inbox) | `root\wmi : BatteryStaticData, BatteryStatus, BatteryFullChargedCapacity, BatteryCycleCount, BatteryTemperature, BatteryRuntime` + `Win32_Battery`. |
-| Thermal (inbox) | `MSAcpi_ThermalZoneTemperature`, Intel IPF (Innovation Platform Framework) participants present. |
-| Other Dell ACPI-WMI | `BIOSEvent` `{9DBB5994-…}` (hotkey / BIOS events — e.g. Fn shortcuts, adapter events), `WMI_Query` `{8D9DDCBC-…}` (descriptor), `BFn.DoBFn` `{A80593CE-…}` (SMBIOS/SMI calling interface — **never used**). |
-| Dell software | MyDell 2.2.6 (Appx) + `FusionService` (running) — this is what currently drives thermal modes. `root\dcdbas` driver present (we will **not** use it). |
+| Model / BIOS | `Dell G15 5520`, SKU `0B56`, BIOS **1.44.0** (08/26/2026) |
+| AWCC "WMAX" interface | `root\wmi : AWCCWmiMethodFunction`, GUID `{A70591CE-A997-11DA-B012-B622A1EF5492}`, instance `ACPI\PNP0C14\AWCC_0` (inbox ACPI-WMI device; no Dell driver needed). Methods include `Thermal_Information`, `Thermal_Control`, `GetFanSensors`, `GameShiftStatus`, `PowerInformation`, `SystemInformation`. All three dumps were elevated. A non-admin denial was not captured. |
+| Dell BIOS attributes over WMI | `root\dcim\sysman\biosattributes` : `EnumerationAttribute`, `IntegerAttribute`, `StringAttribute`, `BIOSAttributeInterface` (SetAttribute). Confirmed attributes in section 1b. |
+| Battery (inbox) | `BatteryStatus`, `BatteryFullChargedCapacity`, `BatteryRuntime`, and `Win32_Battery` respond. `BatteryStaticData` fails even elevated. `BatteryCycleCount` returns 0. `BatteryTemperature` returns no instances. |
+| Thermal (inbox) | `MSAcpi_ThermalZoneTemperature` is registered but `Get-CimInstance` returns "not supported". Temps come from WMAX. Intel IPF was **not** checked by the discovery script. |
+| Other Dell ACPI-WMI | `BIOSEvent` `{9DBB5994-…}` (class exists; the watch recorded no events), `WMI_Query` `{8D9DDCBC-…}` (descriptor), `BFn.DoBFn` `{A80593CE-…}` (SMBIOS/SMI calling interface — **never used**). |
+| Dell software | MyDell 2.2.6.0 (Appx) stays installed. `FusionService` was Running in the first two dumps and Stopped (start mode Auto) in the third. WMAX reads work in both states. `root\dcdbas` was **not** checked (and will not be used). |
 
 ### 1b. Phase 0 results (confirmed, elevated, BIOS 1.44.0, SKU 0B56)
 
-Dumps: `docs/discovery/discovery-mydell-running-20261109-*.json` (FusionService running) and
-`docs/discovery/discovery-fusion-stopped-20261109-201722.json` (FusionService stopped).
-**Everything below is identical with Fusion stopped**: same WMAX instance, resource IDs, profiles, readings, BIOS attributes.
-The firmware interfaces do not depend on MyDell → standalone mode is viable.
+Dumps: `docs/discovery/discovery-mydell-running-20261109-200659.json` and `...-200741.json` (`FusionService` running),
+and `docs/discovery/discovery-fusion-stopped-20261109-201722.json` (`FusionService` stopped, MyDell package still installed).
 
-**`AWThermalManagement` mirrors the active WMAX profile** (all 3 dumps):
+**WMAX reads do not need Fusion.** With the service stopped, the same instance, method list, system description, resource IDs, profile list, op `0x0A` = `0xA0`, and GameShift 0 still come back, including live RPM. That does not show that profile writes, re-apply, or a fan curve work standalone.
 
-| WMAX current profile | `AWThermalManagement` |
-|---|---|
-| `0xA0` Balanced | Balanced |
-| `0xA5` Low-Power | Battery |
-| `0xA3` Quiet | Quiet (inferred) |
-| `0xA1` Balanced-Performance | Performance (inferred) |
+**`AWThermalManagement` tracked the live WMAX profile** in the three snapshots (all on AC):
 
-So the firmware itself persists the last-activated profile in a BIOS setting, which very likely means it survives reboot
-without any software. Consequence: the service probably does **not** need to re-apply the profile at boot — to verify in Phase 1
-(set a profile, reboot with Fusion stopped, read it back). G-Mode and Custom/fan-boost are not covered by this attribute and may still need re-applying.
+| When | WMAX current profile | `AWThermalManagement` |
+|---|---|---|
+| 19:06:59Z, Fusion running | `0xA0` Balanced | Balanced |
+| 19:07:04Z, Fusion running | `0xA5` Low-Power | Battery |
+| 19:16:45Z, Fusion stopped | `0xA0` Balanced | Balanced |
+
+Quiet and Performance were not observed, so `0xA3` and `0xA1` are not mapped to those BIOS strings yet. Kernel calls `0xA1` USTT Balanced-Performance; that is the spec name, not this machine's BIOS label. The return to Balanced happened in the same interval as stopping Fusion. The dumps cannot tell a mode change made before the stop from a reset caused by the stop, and they do not show that the BIOS attribute survives reboot. G-Mode and Custom/fan-boost are not values of this attribute.
 
 **WMAX** — instance `ACPI\PNP0C14\AWCC_0`. System description `0x04000202` → 2 fans, 2 sensors, 0 unknown, 4 profiles.
 
 | Resource | ID (raw) | Notes |
 |---|---|---|
-| Fan CPU_1 | `0x32` | max 4800 rpm, min reported 0, linked sensor `0x01`; observed ~2200–2500 rpm |
-| Fan GPU_1 | `0x33` | max 4800 rpm, min 0, linked sensor `0x06`; observed ~2500–2800 rpm |
-| Sensor CPU | `0x01` (raw `0x101`) | °C; high byte = sensor type, use low byte |
-| Sensor GPU | `0x06` (raw `0x106`) | °C |
-| Profiles | `0xA0` Balanced, `0xA1` Balanced-Performance, `0xA5` Low-Power, `0xA3` Quiet | **USTT** family. G-Mode `0xAB` not enumerated but `GameShiftStatus` answers (0 = off) → G-series path applies. Custom `0x00` to be tested. |
+| Fan CPU_1 | `0x32` | max 4800 rpm, min reported 0, linked sensor `0x01`. Fusion running: ~2200–2500 rpm. Fusion stopped: 879 rpm |
+| Fan GPU_1 | `0x33` | max 4800 rpm, min 0, linked sensor `0x06`. Fusion running: ~2500–2800 rpm. Fusion stopped: 416 rpm |
+| Sensor CPU | `0x01` (raw `0x0101`) | °C. Bit 8 is `AWCC_SENSOR_ID_FLAG`; the type is the low byte. Fusion running: 82°C then 50°C. Fusion stopped: 55°C |
+| Sensor GPU | `0x06` (raw `0x0106`) | °C, same flag. Fusion running: 44°C. Fusion stopped: 50°C |
+| Profiles | `0xA0`, `0xA1`, `0xA5`, `0xA3` | **USTT** family. Kernel names: Balanced, Balanced-Performance, Low-Power, Quiet. No Cool (`0xA2`) and no USTT Performance (`0xA4`). G-Mode `0xAB` is not enumerated; `GameShiftStatus` answers (0 = off), which is the kernel's G-series signal. Custom `0x00` is not enumerated either. Both are untested writes. |
 
-* Fan percentage (op 0x06) → `0xFFFFFFFE` (unsupported). Fan boost reads 0 on both fans.
-* Op 0x0A (balanced profile ID) → `0xA0`.
-* Current profile changed between the two runs (`0xA0` → `0xA5`) while on AC with MyDell running: something (MyDell/Fusion or the user) changes it — confirms the need for the "hardware is the source of truth" polling.
+* Fan percentage (op 0x06) → `0xFFFFFFFE` (unsupported) on both fans, with and without Fusion. Fan boost reads 0. That is a current value of 0, not proof the op is unsupported. Kernel stores boost as a `u8` (0–255); tcc-g15 calls the same op an addon percent. Units stay unverified.
+* Op 0x0A (balanced profile ID) → `0xA0` in every dump.
+* The live profile changed between snapshots (see the table above), including once while Fusion was stopped. Hardware stays the source of truth. The lower RPM in the stopped dump matches that cooler snapshot; it is not evidence that stopping Fusion changed the fan curve.
 
-**BIOS attributes** (110 attributes; no Admin/System password set → `SecType=0, SecHndCount=0, SecHandle=[]`):
+**BIOS attributes** (110 attributes). `PasswordObject` reports `IsPasswordSet=0` for Admin, System, and a third object with an empty name. The no-password `SetAttribute` buffer (`SecType=0`, `SecHndCount=0`, `SecHandle=[]`) was not observed, because the script never calls `SetAttribute`.
 
 | Attribute | Current | Values |
 |---|---|---|
 | `PrimaryBattChargeCfg` | Adaptive | Adaptive, Standard, Express, PrimAcUse, Custom |
-| `CustomChargeStart` | 50 | 50..95 |
-| `CustomChargeStop` | 80 | 55..100 |
+| `CustomChargeStart` | 50 (default 50) | 50..95, step 1. Modifier `[ReadOnlyIfNot:PrimaryBattChargeCfg=Custom]`. `ReadOnly` is still 0 while the mode is Adaptive |
+| `CustomChargeStop` | 80 (default 90) | 55..100, step 1. Same modifier. Stop − start ≥ 5 (Dell / `dell-laptop.c`) |
 | `AdvBatteryChargeCfg` | Disabled | Disabled, Enabled (Advanced Battery Charge mode — schedule-based, Dell-specific) |
-| `AWThermalManagement` | Battery / Balanced | Balanced, Battery, Quiet, Performance — mirrors the active WMAX profile (see above) |
+| `AWThermalManagement` | see table above | Balanced, Battery, Quiet, Performance |
 | `UsbPowerShare`, `WakeOnAc`, `TurboMode` | — | out of scope, read-only display at most |
 
 Windows-side method: `BIOSAttributeInterface.SetAttribute(string AttributeName, string AttributeValue, uint8[] SecHandle, uint32 SecHndCount, uint32 SecType, out sint32 Status)` (+ `SetAttributes`, `SetDefaultValue`, `GetHelpString`).
 
-**Battery** — `DELL 70N2F32`, SMP, LiPo, design 84 280 mWh, full charge 66 770 mWh → **health ≈ 79 %**. `BatteryStaticData` WMI fails even elevated and `CycleCount` = 0 (firmware doesn't report it) → use `IOCTL_BATTERY_QUERY_INFORMATION` (as `powercfg /batteryreport` does) for design capacity; don't show cycle count.
+**Battery** — `Win32_Battery` name `DELL 70N2F32`, chemistry code 2 (Unknown), design voltage 12432 mV. Full charge and remaining capacity 66770 mWh, on AC, estimated charge 100%, charge and discharge rate 0, in every dump. `BatteryStaticData` fails with a generic error even elevated and with Fusion stopped, so the script never computed a design capacity or a health percent. The 84280 mWh / ~79% figure is not in these dumps. `CycleCount` is 0 (do not display it until a report shows a real count). `BatteryTemperature` has no instances. `BatteryRuntime` is `0xFFFFFFFF` while on AC. Use `IOCTL_BATTERY_QUERY_INFORMATION` (as `powercfg /batteryreport` does) for design capacity.
 
-**Not available**: `MSAcpi_ThermalZoneTemperature` (unsupported) → temps come from WMAX only. No `BIOSEvent` captured during the 30 s watch → no hotkey/adapter events to rely on; use Windows power notifications instead.
+**Not available**: `MSAcpi_ThermalZoneTemperature` (class present, instances unsupported) → temps come from WMAX only. `biosEvents` is JSON null in all three dumps, which means the watch ran and recorded nothing. The JSON does not say how long it ran or that a key was pressed. Do not rely on `BIOSEvent` for hotkeys or adapter changes; use Windows power notifications.
 
 ## 2. Reference specs (open source)
 
@@ -101,7 +98,7 @@ G-Mode on G-series: toggle GameShift to match, then activate `0xAB` (Linux logic
 
 **Thermal**
 1. Show live CPU/GPU temps and fan RPM (+ min/max).
-2. Select thermal profile among those the firmware enumerates (expected on the 5520: Balanced, Performance/G-Mode, Quiet, maybe Cool/Custom).
+2. Select a thermal profile from the IDs the firmware enumerates (`0xA0`, `0xA1`, `0xA5`, `0xA3`). G-Mode `0xAB` and Custom `0x00` stay off the menu until a Phase 1 write shows they stick.
 3. G-Mode on/off (software only — the 5520 has no G-key; a tray menu item and an optional global hotkey via `RegisterHotKey`).
 4. Custom mode: per-fan boost (manual), later an optional temperature→boost curve run by the service.
 5. Optional: link thermal profile to Windows power mode (Best efficiency / Balanced / Best performance via `PowerGetEffectiveOverlayScheme` / `PowerSetActiveOverlayScheme`) and/or AC vs battery.
@@ -109,7 +106,7 @@ G-Mode on G-series: toggle GameShift to match, then activate `0xAB` (Linux logic
 
 **Battery care**
 1. Charge mode: Standard / Express / Adaptive / Primarily AC / Custom (start %, stop %), via BIOS attributes WMI.
-2. Health view: design capacity vs full-charge capacity (wear %), cycle count, temperature, charge/discharge rate — inbox `root\wmi` battery classes or `IOCTL_BATTERY_QUERY_INFORMATION`.
+2. Health view: design capacity (via `IOCTL_BATTERY_QUERY_INFORMATION`; `BatteryStaticData` fails here) vs full-charge capacity 66770 mWh, plus charge/discharge rate from `BatteryStatus`. Do not show cycle count or a WMI battery temperature; this firmware does not report them.
 3. Optional reminders (e.g. "on AC at 100% for N days → suggest Primarily AC / Custom 50–80").
 
 **Out of scope**: lighting, OC, GPU MUX, updates, telemetry, anything outside these two areas.
@@ -180,8 +177,9 @@ Still to verify in Phase 1 (first writes, one at a time, with MyDell open to cro
 * Profile switch via `Thermal_Control` op 0x01 for each of A0/A1/A3/A5 — does MyDell follow?
 * G-Mode: GameShift toggle + `0xAB` (Linux G-series sequence) — and how MyDell reflects it.
 * Custom `0x00` + fan boost: meaning of the value (0–255 raw vs %), whether firmware resets it on profile change / resume.
-* `SetAttribute` on `PrimaryBattChargeCfg` / `CustomChargeStart/Stop`: applies immediately or after reboot? Ordering rule when changing both thresholds (stop − start ≥ 5 must hold at every step).
-* `AWThermalManagement`: confirm the Quiet/Performance mapping, that a WMAX profile change updates it immediately, and that the profile survives reboot with Fusion stopped. Never written by MyAlien (WMAX is the write path); read-only.
+* `SetAttribute` on `PrimaryBattChargeCfg` / `CustomChargeStart/Stop`: applies immediately or after reboot? The integer attributes carry `[ReadOnlyIfNot:PrimaryBattChargeCfg=Custom]` while `ReadOnly` is 0, so confirm whether a threshold write is rejected until the mode is Custom. Stop − start ≥ 5 must hold at every step.
+* `AWThermalManagement`: confirm whether Quiet is `0xA3` and Performance is `0xA1` (not observed). Confirm that a WMAX profile write updates the attribute immediately, and whether the profile survives reboot with Fusion stopped. The three dumps only show Balanced=`0xA0` and Battery=`0xA5` moving together. Never written by MyAlien (WMAX is the write path); read-only.
+* Fan boost units: 0–255 raw vs percent. A read of 0 is the current boost, not an unsupported op.
 * If a BIOS admin password is set later, it must be prompted for each write, never stored.
 * Safety: never send undocumented ops; never touch OC/GPIO/Caldera/Tobii/BFn methods.
 
