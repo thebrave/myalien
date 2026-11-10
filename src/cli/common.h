@@ -20,10 +20,11 @@ void printBatterySection(const Snapshot& s);
 
 // Snapshot for display, plus a label of where it came from:
 //  * elevated            -> collected locally;
-//  * not elevated        -> asked to the MyAlien service when it is running;
+//  * not elevated        -> asked to the MyAlien service when it is running (charge settings
+//                           from its cache, or re-read first when freshCharge is set);
 //  * otherwise           -> collected locally (Dell sections will show access denied).
 // Requires COM initialised on the calling thread.
-std::pair<Snapshot, std::string> obtainSnapshot(const SnapshotParts& parts);
+std::pair<Snapshot, std::string> obtainSnapshot(const SnapshotParts& parts, bool freshCharge = false);
 
 // "balanced", "quiet", ... or a hex ID such as "0xA0".
 std::optional<uint8_t> parseProfile(std::wstring_view arg);

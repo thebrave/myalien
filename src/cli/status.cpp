@@ -123,6 +123,12 @@ void printBattery(const Snapshot& s) {
     }
     if (s.advancedChargeMode) field("Advanced mode", *s.advancedChargeMode);
     if (s.biosPasswordSet) field("BIOS password", *s.biosPasswordSet ? "admin password set (writes will need it)" : "none");
+    if (s.chargeAgeSeconds) {
+        const uint32_t a = *s.chargeAgeSeconds;
+        field("Settings read", a < 60    ? std::format("{} s ago by the service", a)
+                               : a < 3600 ? std::format("{} min ago by the service", a / 60)
+                                          : std::format("{} h ago by the service", a / 3600));
+    }
 }
 
 }  // namespace

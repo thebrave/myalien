@@ -219,6 +219,11 @@ The service (`MyAlien`, LocalSystem, automatic start, restarts on failure) lets 
 clients read the Dell data over `\\.\pipe\MyAlien`. In this first increment it is **read-only**:
 it answers `status` / `battery`, logs power events, and changes nothing.
 
+Reading the BIOS charge settings takes ~5 s, so the service keeps them in memory (refreshed at
+start-up, after resume, every 10 minutes). `status` shows how old they are
+(`Settings read : … ago by the service`) and answers in ~0.3 s; `battery` asks the service to
+re-read them first and takes ~5 s.
+
 * `--install` copies the executable to `C:\Program Files\MyAlien\myalien-svc.exe` (a SYSTEM service
   must not run from a user-writable folder such as the build tree). Running it again updates an
   installed service: it stops it, replaces the executable and starts it.

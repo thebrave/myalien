@@ -75,43 +75,94 @@ const wchar_t* expectedAwThermalManagement(uint8_t wmaxProfile) {
 
 BiosAttributes::BiosAttributes() : ns_(wmi::Namespace::connect(L"ROOT\\DCIM\\SYSMAN\\BIOSATTRIBUTES")) {}
 
+namespace {
+
+class ScanTimer {
+public:
+    ScanTimer(unsigned& count, double& ms) : count_(count), ms_(ms) { QueryPerformanceCounter(&t0_); }
+    ~ScanTimer() {
+        LARGE_INTEGER t1, f;
+        QueryPerformanceCounter(&t1);
+        QueryPerformanceFrequency(&f);
+        ++count_;
+        ms_ += 1000.0 * static_cast<double>(t1.QuadPart - t0_.QuadPart) / static_cast<double>(f.QuadPart);
+    }
+
+private:
+    unsigned& count_;
+    double& ms_;
+    LARGE_INTEGER t0_{};
+};
+
+}  // namespace
+
+const std::map<std::wstring, EnumAttribute>& BiosAttributes::enumerations() const {
+    if (!enums_) {
+        ScanTimer timer(scans_, scanMs_);
+        std::map<std::wstring, EnumAttribute> m;
+        for (const auto& o : ns_.query(L"SELECT * FROM EnumerationAttribute")) {
+            EnumAttribute a;
+            a.name = o.getString(L"AttributeName").value_or(L"");
+            if (a.name.empty()) continue;
+            a.current = o.getString(L"CurrentValue").value_or(L"");
+            a.possible = o.getStringArray(L"PossibleValue");
+            a.modifiers = o.getString(L"Modifiers").value_or(L"");
+            a.readOnly = o.getInt(L"ReadOnly").value_or(0) != 0;
+            m.emplace(a.name, std::move(a));
+        }
+        enums_ = std::move(m);
+    }
+    return *enums_;
+}
+
+const std::map<std::wstring, IntAttribute>& BiosAttributes::integers() const {
+    if (!ints_) {
+        ScanTimer timer(scans_, scanMs_);
+        std::map<std::wstring, IntAttribute> m;
+        for (const auto& o : ns_.query(L"SELECT * FROM IntegerAttribute")) {
+            IntAttribute a;
+            a.name = o.getString(L"AttributeName").value_or(L"");
+            if (a.name.empty()) continue;
+            a.current = o.getInt(L"CurrentValue").value_or(0);
+            a.lower = o.getInt(L"LowerBound").value_or(0);
+            a.upper = o.getInt(L"UpperBound").value_or(0);
+            a.step = o.getInt(L"ScalarIncrement").value_or(1);
+            a.modifiers = o.getString(L"Modifiers").value_or(L"");
+            a.readOnly = o.getInt(L"ReadOnly").value_or(0) != 0;
+            m.emplace(a.name, std::move(a));
+        }
+        ints_ = std::move(m);
+    }
+    return *ints_;
+}
+
 std::optional<EnumAttribute> BiosAttributes::enumeration(const wchar_t* name) const {
-    const auto rows = ns_.query(L"SELECT * FROM EnumerationAttribute" + whereName(L"AttributeName", name));
-    if (rows.empty()) return std::nullopt;
-    const auto& o = rows.front();
-    EnumAttribute a;
-    a.name = name;
-    a.current = o.getString(L"CurrentValue").value_or(L"");
-    a.possible = o.getStringArray(L"PossibleValue");
-    a.modifiers = o.getString(L"Modifiers").value_or(L"");
-    a.readOnly = o.getInt(L"ReadOnly").value_or(0) != 0;
-    return a;
+    const auto& m = enumerations();
+    const auto it = m.find(name);
+    if (it == m.end()) return std::nullopt;
+    return it->second;
 }
 
 std::optional<IntAttribute> BiosAttributes::integer(const wchar_t* name) const {
-    const auto rows = ns_.query(L"SELECT * FROM IntegerAttribute" + whereName(L"AttributeName", name));
-    if (rows.empty()) return std::nullopt;
-    const auto& o = rows.front();
-    IntAttribute a;
-    a.name = name;
-    a.current = o.getInt(L"CurrentValue").value_or(0);
-    a.lower = o.getInt(L"LowerBound").value_or(0);
-    a.upper = o.getInt(L"UpperBound").value_or(0);
-    a.step = o.getInt(L"ScalarIncrement").value_or(1);
-    a.modifiers = o.getString(L"Modifiers").value_or(L"");
-    a.readOnly = o.getInt(L"ReadOnly").value_or(0) != 0;
-    return a;
+    const auto& m = integers();
+    const auto it = m.find(name);
+    if (it == m.end()) return std::nullopt;
+    return it->second;
 }
 
 std::optional<bool> BiosAttributes::adminPasswordSet() const {
-    try {
-        const auto sec = wmi::Namespace::connect(L"ROOT\\DCIM\\SYSMAN\\WMISECURITY");
-        const auto rows = sec.query(L"SELECT * FROM PasswordObject" + whereName(L"NameId", L"Admin"));
-        if (rows.empty()) return std::nullopt;
-        return rows.front().getInt(L"IsPasswordSet").value_or(0) != 0;
-    } catch (const HrError&) {
-        return std::nullopt;
+    if (!password_) {
+        ScanTimer timer(scans_, scanMs_);
+        try {
+            const auto sec = wmi::Namespace::connect(L"ROOT\\DCIM\\SYSMAN\\WMISECURITY");
+            const auto rows = sec.query(L"SELECT * FROM PasswordObject" + whereName(L"NameId", L"Admin"));
+            password_ = rows.empty() ? std::nullopt
+                                     : std::optional<bool>(rows.front().getInt(L"IsPasswordSet").value_or(0) != 0);
+        } catch (const HrError&) {
+            password_ = std::optional<bool>();
+        }
     }
+    return *password_;
 }
 
 void BiosAttributes::set(const wchar_t* name, const std::wstring& value) const {
@@ -119,6 +170,9 @@ void BiosAttributes::set(const wchar_t* name, const std::wstring& value) const {
         throw std::logic_error(std::format("BIOS: refusing to write non allow-listed attribute {}", toUtf8(name)));
     if (adminPasswordSet().value_or(false))
         throw std::runtime_error("BIOS: an admin password is set; password-protected writes are not supported yet");
+    // Whatever happens next, cached values may now be stale.
+    enums_.reset();
+    ints_.reset();
 
     std::wstring path;
     for (const auto& o : ns_.query(L"SELECT * FROM BIOSAttributeInterface")) {

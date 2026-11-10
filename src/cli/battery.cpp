@@ -136,7 +136,7 @@ int cmdBattery(std::span<const std::wstring_view> args) {
     wmi::ComApartment com;
 
     if (args.empty()) {
-        const auto [snapshot, source] = obtainSnapshot({.thermal = false});
+        const auto [snapshot, source] = obtainSnapshot({.thermal = false}, /*freshCharge=*/true);
         std::printf("Source        : %s\n", source.c_str());
         printBatterySection(snapshot);
         return 0;

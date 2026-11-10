@@ -79,6 +79,10 @@ public:
     Awcc();
 
     const AwccCapabilities& caps() const noexcept { return caps_; }
+
+    // Diagnostics: number of WMI method calls made by this object and the time spent in them.
+    unsigned callCount() const noexcept { return calls_; }
+    double callMs() const noexcept { return callMs_; }
     const std::wstring& instancePath() const noexcept { return path_; }
 
     // --- reads (allow-listed operations only)
@@ -116,6 +120,8 @@ private:
     std::wstring path_;
     AwccCapabilities caps_;
     std::mutex mutex_;
+    unsigned calls_ = 0;
+    double callMs_ = 0;
 };
 
 }  // namespace myalien

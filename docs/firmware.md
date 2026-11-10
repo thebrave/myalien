@@ -115,6 +115,9 @@ Without a BIOS password, `SetAttribute` works with `SecType = 0`, `SecHndCount =
 
 * `CustomChargeStart` / `CustomChargeStop` carry the modifier
   `[ReadOnlyIfNot:PrimaryBattChargeCfg=Custom]`.
+* **Reads are slow**: any query on an attribute class (even `WHERE AttributeName = …`) makes the
+  provider read every attribute of that class from the BIOS: ~1.5 s per class as SYSTEM, ~4.5 s
+  for the three reads behind the charge settings. Read each class once, and cache.
 * Charge-setting writes **apply immediately**: each value read back right after the write,
   no reboot needed.
 * `AWThermalManagement` follows a WMAX profile write within 2 s. It cannot identify the profile

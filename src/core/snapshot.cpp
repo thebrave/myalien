@@ -32,9 +32,11 @@ SectionError toSectionError(const std::exception& e) {
     return SectionError{e.what(), hr && hr->accessDenied()};
 }
 
-void collectThermal(Snapshot& s) {
+void collectThermal(Snapshot& s, SnapshotTiming* timing) {
+    std::optional<Awcc> holder;
     try {
-        Awcc awcc;
+        holder.emplace();
+        Awcc& awcc = *holder;
         const auto& caps = awcc.caps();
         s.profile = awcc.currentProfile();
         s.profiles = caps.profiles;
@@ -60,7 +62,25 @@ void collectThermal(Snapshot& s) {
     } catch (const std::exception& e) {
         s.thermalError = toSectionError(e);
     }
+    if (timing && holder) {
+        timing->awccCalls = holder->callCount();
+        timing->awccCallMs = holder->callMs();
+    }
 }
+
+class Stopwatch {
+public:
+    Stopwatch() { QueryPerformanceCounter(&start_); }
+    double ms() const {
+        LARGE_INTEGER now, freq;
+        QueryPerformanceCounter(&now);
+        QueryPerformanceFrequency(&freq);
+        return 1000.0 * static_cast<double>(now.QuadPart - start_.QuadPart) / static_cast<double>(freq.QuadPart);
+    }
+
+private:
+    LARGE_INTEGER start_{};
+};
 
 void collectBattery(Snapshot& s) {
     try {
@@ -87,9 +107,21 @@ void collectBattery(Snapshot& s) {
     }
 }
 
-void collectBios(Snapshot& s, bool thermal, bool charge) {
+void collectBios(Snapshot& s, bool thermal, bool charge, SnapshotTiming* timing) {
+    std::optional<BiosAttributes> holder;
+    struct Report {
+        std::optional<BiosAttributes>& b;
+        SnapshotTiming* t;
+        ~Report() {
+            if (t && b) {
+                t->biosScans = b->scanCount();
+                t->biosScanMs = b->scanMs();
+            }
+        }
+    } report{holder, timing};
     try {
-        BiosAttributes bios;
+        holder.emplace();
+        const BiosAttributes& bios = *holder;
         if (thermal)
             if (const auto a = bios.enumeration(attr::AWThermalManagement)) s.awThermal = toUtf8(a->current);
         if (!charge) return;
@@ -110,8 +142,12 @@ void collectBios(Snapshot& s, bool thermal, bool charge) {
 
 }  // namespace
 
-Snapshot collectSnapshot(const SnapshotParts& parts) {
+Snapshot collectSnapshot(const SnapshotParts& parts, SnapshotTiming* timing) {
+    SnapshotTiming local;
+    SnapshotTiming& t = timing ? *timing : local;
     Snapshot s;
+
+    Stopwatch sw;
     const auto m = machineInfo();
     s.manufacturer = toUtf8(m.manufacturer);
     s.product = toUtf8(m.product);
@@ -120,11 +156,37 @@ Snapshot collectSnapshot(const SnapshotParts& parts) {
     s.fusion = fusionServiceState();
     s.onAc = onAcPower();
     s.windowsMode = windowsPowerMode();
+    t.systemMs = sw.ms();
 
-    if (parts.thermal) collectThermal(s);
-    if (parts.battery) collectBattery(s);
-    if (parts.thermal || parts.charge) collectBios(s, parts.thermal, parts.charge);
+    if (parts.thermal) {
+        Stopwatch th;
+        collectThermal(s, &t);
+        t.thermalMs = th.ms();
+    }
+    if (parts.battery) {
+        Stopwatch b;
+        collectBattery(s);
+        t.batteryMs = b.ms();
+    }
+    const bool mirror = parts.thermal && parts.biosMirror;
+    if (mirror || parts.charge) {
+        Stopwatch b;
+        collectBios(s, mirror, parts.charge, &t);
+        t.biosMs = b.ms();
+    }
     return s;
+}
+
+void copyChargeSettings(const Snapshot& from, Snapshot& to) {
+    to.chargeError = from.chargeError;
+    to.chargeExposed = from.chargeExposed;
+    to.chargeMode = from.chargeMode;
+    to.chargeModes = from.chargeModes;
+    to.chargeStart = from.chargeStart;
+    to.chargeStop = from.chargeStop;
+    to.advancedChargeMode = from.advancedChargeMode;
+    to.biosPasswordSet = from.biosPasswordSet;
+    to.chargeAgeSeconds = from.chargeAgeSeconds;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -240,6 +302,7 @@ std::string encodeSnapshot(const Snapshot& s) {
     }
     w.put("ch.adv", s.advancedChargeMode);
     w.put("ch.pw", s.biosPasswordSet);
+    w.put("ch.age", s.chargeAgeSeconds);
     return w.take();
 }
 
@@ -396,6 +459,7 @@ Snapshot decodeSnapshot(std::string_view text) {
     }
     s.advancedChargeMode = r.optStr("ch.adv");
     s.biosPasswordSet = r.optBool("ch.pw");
+    s.chargeAgeSeconds = r.optInt<uint32_t>("ch.age");
     return s;
 }
 

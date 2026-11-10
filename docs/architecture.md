@@ -116,6 +116,7 @@ The CLI holds no state between runs: the firmware is the source of truth.
 | `main.cpp` | `myalien-svc [--install \| --uninstall \| --console]`; no argument = started by the SCM |
 | `service.h/.cpp` | SCM integration (`ServiceMain`, control handler: stop, shutdown, power events), install / uninstall, console mode |
 | `pipe_server.h/.cpp` | Named-pipe server and request dispatch |
+| `charge_cache.h/.cpp` | Cached BIOS charge settings and their refresher thread; `ServiceContext` shared by all threads |
 | `log.h/.cpp` | `<install dir>\logs\service.log` (rotated at 1 MB), or stderr in console mode |
 
 **Install.** `--install` copies the executable to `%ProgramFiles%\MyAlien` (administrators-only
@@ -136,7 +137,16 @@ directory. Automatic start; restart after 5 s on the first two failures.
 | Request | Body of the `OK` response |
 |---|---|
 | `PING` | `service=MyAlien`, `version=…` |
-| `STATUS` | an encoded `Snapshot` (`v=1`, then `key=value` lines) |
+| `STATUS` | an encoded `Snapshot` (`v=1`, then `key=value` lines): live thermal + battery, cached charge settings with `ch.age` |
+| `STATUS FRESH` | same, after re-reading the charge settings (~5 s) |
+
+**Charge-settings cache** (`charge_cache.h/.cpp`). Reading Dell BIOS attributes costs ~1.5 s per
+attribute class on the G15 5520 (the provider reads every attribute from the BIOS), ~4.5 s for the
+charge settings. The service keeps them in memory, refreshed by a background thread at start-up,
+after resume and every 10 minutes, and on `STATUS FRESH` (used by `myalien battery`). Reads are
+serialised; a request that waited for a running read reuses it. The BIOS mirror of the thermal
+profile (`AWThermalManagement`) is not part of the service's answer. Measured: `myalien status`
+through the service ≈ 0.25 s, `myalien battery` ≈ 4.8 s.
 
 **Client side** (`ipc::call`): waits for the pipe, connects with `SECURITY_IDENTIFICATION` (the
 server cannot impersonate the caller), checks that `GetNamedPipeServerProcessId` is the PID of the

@@ -131,6 +131,20 @@ Awcc::Awcc() : ns_(wmi::Namespace::connect(L"ROOT\\WMI")) {
 
 uint32_t Awcc::invoke(AwccMethod m, uint32_t arg) {
     std::lock_guard lock(mutex_);
+    LARGE_INTEGER t0, t1, freq;
+    QueryPerformanceCounter(&t0);
+    struct Account {
+        Awcc* self;
+        LARGE_INTEGER& t0;
+        LARGE_INTEGER& t1;
+        LARGE_INTEGER& freq;
+        ~Account() {
+            QueryPerformanceCounter(&t1);
+            QueryPerformanceFrequency(&freq);
+            ++self->calls_;
+            self->callMs_ += 1000.0 * static_cast<double>(t1.QuadPart - t0.QuadPart) / static_cast<double>(freq.QuadPart);
+        }
+    } account{this, t0, t1, freq};
     const wchar_t* name = methodName(m);
 
     wmi::ComPtr<IWbemClassObject> inDef;

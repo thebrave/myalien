@@ -100,10 +100,11 @@ std::optional<int> refuseWrite(const char* what) {
     return std::nullopt;
 }
 
-std::pair<Snapshot, std::string> obtainSnapshot(const SnapshotParts& parts) {
+std::pair<Snapshot, std::string> obtainSnapshot(const SnapshotParts& parts, bool freshCharge) {
     if (isElevated()) return {collectSnapshot(parts), "local (elevated)"};
 
-    const auto r = ipc::call("STATUS");
+    // A fresh read of the BIOS charge settings takes several seconds in the service.
+    const auto r = freshCharge ? ipc::call("STATUS FRESH", 20000) : ipc::call("STATUS");
     if (r.response && r.response->ok) {
         try {
             return {decodeSnapshot(r.response->body), "MyAlien service"};

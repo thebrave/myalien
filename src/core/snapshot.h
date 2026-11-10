@@ -78,6 +78,7 @@ struct Snapshot {
     std::optional<int64_t> chargeStart, chargeStop;
     std::optional<std::string> advancedChargeMode;
     std::optional<bool> biosPasswordSet;
+    std::optional<uint32_t> chargeAgeSeconds;  // set when the charge settings come from the service cache
 
     bool isG15_5520() const { return manufacturer == "Dell Inc." && product == "Dell G15 5520"; }
 };
@@ -86,11 +87,27 @@ struct SnapshotParts {
     bool thermal = true;
     bool battery = true;
     bool charge = true;
+    // Read BIOS AWThermalManagement with the thermal part. Costs a full BIOS attribute read
+    // (seconds on the G15 5520): the service skips it.
+    bool biosMirror = true;
+};
+
+// Copies the charge-settings fields (charge*, advancedChargeMode, biosPasswordSet) from one
+// snapshot to another.
+void copyChargeSettings(const Snapshot& from, Snapshot& to);
+
+// Diagnostics: time spent per section of collectSnapshot.
+struct SnapshotTiming {
+    double systemMs = 0, thermalMs = 0, batteryMs = 0, biosMs = 0;
+    unsigned awccCalls = 0;
+    double awccCallMs = 0;  // total time inside AWCC WMI method calls
+    unsigned biosScans = 0;
+    double biosScanMs = 0;  // total time reading BIOS attribute classes
 };
 
 // Collects a snapshot. Requires COM initialised on the calling thread (wmi::ComApartment).
 // Never throws for firmware errors: they are recorded per section.
-Snapshot collectSnapshot(const SnapshotParts& parts = {});
+Snapshot collectSnapshot(const SnapshotParts& parts = {}, SnapshotTiming* timing = nullptr);
 
 std::string encodeSnapshot(const Snapshot& s);
 

@@ -42,10 +42,23 @@ std::string trim(std::string s) {
 }
 
 // Request dispatch. Read-only in this increment.
-std::string handleRequest(const std::string& raw) {
+//   PING          -> service name and version
+//   STATUS        -> snapshot: live thermal + battery, cached charge settings (with their age)
+//   STATUS FRESH  -> same, re-reading the charge settings first (several seconds)
+std::string handleRequest(const std::string& raw, ServiceContext& ctx) {
     const std::string req = trim(raw);
     if (req == "PING") return ipc::makeOk(std::format("service=MyAlien\nversion={}\n", MYALIEN_VERSION));
-    if (req == "STATUS") return ipc::makeOk(encodeSnapshot(collectSnapshot()));
+    if (req == "STATUS" || req == "STATUS FRESH") {
+        if (req == "STATUS FRESH") ctx.charge.refresh();
+        SnapshotTiming t;
+        Snapshot s = collectSnapshot({.charge = false, .biosMirror = false}, &t);
+        ctx.charge.apply(s);
+        const double total = t.systemMs + t.thermalMs + t.batteryMs;
+        if (total > 1000)
+            logf("slow STATUS: system {:.0f} ms, thermal {:.0f} ms ({} AWCC calls, {:.0f} ms inside), battery {:.0f} ms",
+                 t.systemMs, t.thermalMs, t.awccCalls, t.awccCallMs, t.batteryMs);
+        return ipc::makeOk(encodeSnapshot(s));
+    }
     return ipc::makeError("unknown request");
 }
 
@@ -76,7 +89,8 @@ Io complete(HANDLE pipe, OVERLAPPED& ov, BOOL started, HANDLE stopEvent, DWORD t
 }
 
 // Serves one connected client. Returns false when the server should stop.
-bool serveClient(HANDLE pipe, HANDLE ioEvent, HANDLE stopEvent) {
+bool serveClient(HANDLE pipe, HANDLE ioEvent, ServiceContext& ctx) {
+    const HANDLE stopEvent = ctx.stopEvent;
     // Read the request: one message, possibly in several chunks, bounded.
     std::string request;
     char buf[1024];
@@ -97,7 +111,7 @@ bool serveClient(HANDLE pipe, HANDLE ioEvent, HANDLE stopEvent) {
 
     std::string response;
     try {
-        response = handleRequest(request);
+        response = handleRequest(request, ctx);
     } catch (const std::exception& e) {
         response = ipc::makeError(e.what());
     }
@@ -128,7 +142,8 @@ bool serveClient(HANDLE pipe, HANDLE ioEvent, HANDLE stopEvent) {
 
 }  // namespace
 
-DWORD runPipeServer(HANDLE stopEvent) {
+DWORD runPipeServer(ServiceContext& ctx) {
+    const HANDLE stopEvent = ctx.stopEvent;
     wmi::ComApartment com;  // snapshots use WMI on this thread
 
     PSECURITY_DESCRIPTOR sdRaw = nullptr;
@@ -170,7 +185,7 @@ DWORD runPipeServer(HANDLE stopEvent) {
             connected = (r == Io::Done);
         }
 
-        if (connected && !serveClient(pipe.get(), ioEvent.get(), stopEvent)) {
+        if (connected && !serveClient(pipe.get(), ioEvent.get(), ctx)) {
             DisconnectNamedPipe(pipe.get());
             break;
         }

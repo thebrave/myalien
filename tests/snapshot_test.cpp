@@ -53,6 +53,7 @@ Snapshot sample() {
     s.chargeStop = 80;
     s.advancedChargeMode = "Disabled";
     s.biosPasswordSet = false;
+    s.chargeAgeSeconds = 125;
     return s;
 }
 
@@ -86,6 +87,11 @@ int main() {
                "battery temperature");
         expect(b.chargeModes.size() == 5 && b.chargeStart == 50 && b.chargeStop == 80, "charge");
         expect(b.biosPasswordSet == false && b.advancedChargeMode == "Disabled", "charge extras");
+        expect(b.chargeAgeSeconds == 125u, "charge age");
+        Snapshot c;
+        copyChargeSettings(b, c);
+        expect(c.chargeMode == "Adaptive" && c.chargeStop == 80 && c.chargeAgeSeconds == 125u && c.fans.empty(),
+               "copyChargeSettings copies only charge fields");
     }
     {
         Snapshot a = sample();

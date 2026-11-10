@@ -10,6 +10,7 @@
 #include "core/wmi.h"
 
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -48,6 +49,10 @@ inline constexpr wchar_t AWThermalManagement[] = L"AWThermalManagement";
 // Custom (0x00) and Balanced (0xA0) both show "Balanced".
 const wchar_t* expectedAwThermalManagement(uint8_t wmaxProfile);
 
+// Reads are cached per object: the Dell provider answers any query on a class by reading every
+// attribute of that class from the BIOS (seconds on the G15 5520), so each class is read once and
+// looked up in memory. set() drops the cache so the next read sees the new value.
+// Create a fresh object when current values are needed.
 class BiosAttributes {
 public:
     BiosAttributes();
@@ -63,8 +68,20 @@ public:
     // Throws std::logic_error (not allow-listed), std::runtime_error (non-zero Status), HrError (WMI).
     void set(const wchar_t* name, const std::wstring& value) const;
 
+    // Diagnostics: WMI class reads performed and time spent in them.
+    unsigned scanCount() const noexcept { return scans_; }
+    double scanMs() const noexcept { return scanMs_; }
+
 private:
+    const std::map<std::wstring, EnumAttribute>& enumerations() const;
+    const std::map<std::wstring, IntAttribute>& integers() const;
+
     wmi::Namespace ns_;
+    mutable std::optional<std::map<std::wstring, EnumAttribute>> enums_;
+    mutable std::optional<std::map<std::wstring, IntAttribute>> ints_;
+    mutable std::optional<std::optional<bool>> password_;
+    mutable unsigned scans_ = 0;
+    mutable double scanMs_ = 0;
 };
 
 }  // namespace myalien
