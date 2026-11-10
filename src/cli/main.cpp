@@ -25,6 +25,10 @@ void printUsage() {
         "  gmode                 Show G-Mode state\n"
         "  gmode on              Turn G-Mode on\n"
         "  gmode off [<name>]    Turn G-Mode off and activate a profile (default: balanced)\n"
+        "  battery               Show battery health and charge mode\n"
+        "  battery mode <mode>   Set the charge mode: adaptive | standard | express | primacuse\n"
+        "  battery mode custom <start> <stop>\n"
+        "                        Charge only between start % and stop % (e.g. 50 80)\n"
         "  help                  Show this help\n"
         "\n"
         "Dell firmware interfaces (thermal, BIOS settings) require an elevated prompt.\n",
@@ -45,6 +49,7 @@ int wmain(int argc, wchar_t** argv) {
         if (cmd == L"status") return myalien::cli::cmdStatus(rest);
         if (cmd == L"profile") return myalien::cli::cmdProfile(rest);
         if (cmd == L"gmode") return myalien::cli::cmdGMode(rest);
+        if (cmd == L"battery") return myalien::cli::cmdBattery(rest);
         if (cmd == L"help" || cmd == L"--help" || cmd == L"-h" || cmd == L"/?") {
             printUsage();
             return 0;

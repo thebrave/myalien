@@ -4,7 +4,8 @@
 // IntegerAttribute, BIOSAttributeInterface) and root\dcim\sysman\wmisecurity (PasswordObject).
 // Spec reference: Linux drivers/platform/x86/dell/dell-wmi-sysman (interface facts only).
 //
-// This module is read-only for now; writes (SetAttribute) come with Phase 1 write commands.
+// Writes go through BIOSAttributeInterface.SetAttribute and are limited to an allow-list
+// (battery charge settings only).
 
 #include "core/wmi.h"
 
@@ -55,6 +56,11 @@ public:
 
     // nullopt when the security namespace is unavailable.
     std::optional<bool> adminPasswordSet() const;
+
+    // Writes one allow-listed attribute (PrimaryBattChargeCfg, CustomChargeStart, CustomChargeStop).
+    // No BIOS password support: refuses when an admin password is set.
+    // Throws std::logic_error (not allow-listed), std::runtime_error (non-zero Status), HrError (WMI).
+    void set(const wchar_t* name, const std::wstring& value) const;
 
 private:
     wmi::Namespace ns_;

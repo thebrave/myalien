@@ -25,5 +25,8 @@ add_compile_definitions(
 
 add_compile_options(/W4 /permissive- /utf-8 /EHsc /Zc:__cplusplus /MP)
 
+enable_testing()
+
 add_subdirectory(src/core)
 add_subdirectory(src/cli)
+add_subdirectory(tests)

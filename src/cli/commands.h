@@ -9,5 +9,6 @@ namespace myalien::cli {
 int cmdStatus(std::span<const std::wstring_view> args);
 int cmdProfile(std::span<const std::wstring_view> args);
 int cmdGMode(std::span<const std::wstring_view> args);
+int cmdBattery(std::span<const std::wstring_view> args);
 
 }  // namespace myalien::cli

@@ -9,7 +9,14 @@
 #include <string>
 #include <string_view>
 
+namespace myalien {
+class BiosAttributes;
+}
+
 namespace myalien::cli {
+
+// Battery section of `status` (health, charge, charge mode). bios may be null (then biosError is shown).
+void printBatterySection(const BiosAttributes* bios, const std::string& biosError);
 
 // "balanced", "quiet", ... or a hex ID such as "0xA0".
 std::optional<uint8_t> parseProfile(std::wstring_view arg);

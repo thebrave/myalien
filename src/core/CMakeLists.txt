@@ -4,6 +4,7 @@ add_library(myalien-core STATIC
     awcc.cpp
     bios_attributes.cpp
     battery.cpp
+    charge.cpp
     system.cpp)
 
 target_include_directories(myalien-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)

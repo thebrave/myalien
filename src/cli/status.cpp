@@ -158,6 +158,8 @@ void printBattery(const BiosAttributes* bios, const std::string& biosError) {
 
 }  // namespace
 
+void printBatterySection(const BiosAttributes* bios, const std::string& biosError) { printBattery(bios, biosError); }
+
 int cmdStatus(std::span<const std::wstring_view> /*args*/) {
     wmi::ComApartment com;
 
