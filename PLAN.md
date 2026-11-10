@@ -33,7 +33,7 @@ and `docs/discovery/discovery-fusion-stopped-20261109-201722.json` (`FusionServi
 | 19:16:45Z, Fusion stopped | `0xA0` Balanced | Balanced |
 | 19:37:15Z, Fusion running | `0xA0` Balanced | Balanced |
 
-**Confirmed 2026-11-10 by `myalien profile set`** (elevated, Fusion running): writing `0xA3` → `Quiet`, `0xA1` → `Performance`, `0xA0` → `Balanced`, each read back within the 2 s poll. Full mapping: Balanced=`0xA0`, Performance=`0xA1`, Quiet=`0xA3`, Battery=`0xA5`. Kernel calls `0xA1` USTT Balanced-Performance; that is the spec name, not this machine's BIOS label. The return to Balanced happened in the same interval as stopping Fusion. The dumps cannot tell a mode change made before the stop from a reset caused by the stop, and they do not show that the BIOS attribute survives reboot. G-Mode and Custom/fan-boost are not values of this attribute.
+**Confirmed 2026-11-10 by `myalien profile set`** (elevated, Fusion running): writing `0xA3` → `Quiet`, `0xA1` → `Performance`, `0xA0` → `Balanced`, each read back within the 2 s poll. Full mapping: Balanced=`0xA0`, Performance=`0xA1`, Quiet=`0xA3`, Battery=`0xA5`. Kernel calls `0xA1` USTT Balanced-Performance; that is the spec name, not this machine's BIOS label. The return to Balanced happened in the same interval as stopping Fusion. The dumps cannot tell a mode change made before the stop from a reset caused by the stop, and they do not show that the BIOS attribute survives reboot. Later writes showed G-Mode (`0xAB`) reads as `Performance` and Custom (`0x00`) as `Balanced`, so the attribute cannot identify the profile on its own (see §7).
 
 **WMAX** — instance `ACPI\PNP0C14\AWCC_0`. System description `0x04000202` → 2 fans, 2 sensors, 0 unknown, 4 profiles.
 

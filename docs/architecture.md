@@ -1,0 +1,118 @@
+# Architecture (Phase 1)
+
+Phase 1 delivers a static core library and a command-line tool. The Windows service and the tray
+app (Phases 2–3, see [PLAN.md](../PLAN.md)) will reuse the same core library.
+
+```
+myalien.exe (src/cli)          charge_plan_test.exe (tests)
+        │                                │
+        └──────────── myalien-core (src/core) ─────────────┐
+                │            │             │               │
+            WMI (COM)    WMI (COM)    battery IOCTL   SCM / registry / powrprof
+          root\WMI    root\DCIM\SYSMAN    SetupAPI
+          AWCC WMAX   BIOS attributes
+```
+
+## Build
+
+* CMake ≥ 3.25, MSVC (VS 2022), C++20, x64. Preset `vs2022`, build presets `debug` / `release`.
+* Static CRT (`/MT`): `myalien.exe` is a single self-contained file (~500 KB).
+* `/W4 /permissive- /utf-8`; the tree builds without warnings.
+* **No third-party code.** Only the Windows SDK: COM/WMI (`wbemuuid`, `ole32`, `oleaut32`),
+  `setupapi`, `advapi32`; `powrprof.dll` is loaded at run time.
+* Tests: `ctest --test-dir build/vs2022 -C Release` (or run `build/vs2022/tests/Release/charge_plan_test.exe`).
+
+## Core library — `src/core`
+
+| File | Responsibility |
+|---|---|
+| `error.h/.cpp` | `HrError` (exception carrying an `HRESULT`, `accessDenied()`), readable WMI error texts, UTF-8 ⇄ UTF-16 helpers |
+| `wmi.h/.cpp` | Thin RAII layer over COM WMI: `ComApartment` (COM init + security), `Bstr`, `ScopedVariant`, `Object` (typed property reads; one-element arrays read as scalars), `Namespace` (`connect`, `query`, `getClass`, `execMethod`) |
+| `awcc.h/.cpp` | Dell AWCC "WMAX" thermal interface: capability discovery, profile, G-Mode, temperatures, fans, fan boost |
+| `bios_attributes.h/.cpp` | Dell BIOS attributes: read enumeration / integer attributes, admin-password state, allow-listed `SetAttribute`; `expectedAwThermalManagement()` |
+| `charge.h/.cpp` | Battery charge settings: `readChargeSettings()` and the pure planner `planChargeChange()` |
+| `battery.h/.cpp` | Battery health and live status through the Windows battery class driver (`IOCTL_BATTERY_QUERY_*`), no elevation needed |
+| `system.h/.cpp` | Machine identity (registry), elevation, `FusionService` state (SCM), Windows power mode (effective overlay scheme), AC/DC |
+
+### `Awcc`
+
+Constructed once per command. The constructor connects to `ROOT\WMI`, finds the active
+`AWCCWmiMethodFunction` instance and discovers the machine's capabilities:
+
+* system description → counts of fans, sensors, unknown resources, profiles (each must be ≤ 16);
+* resource IDs → fan IDs, sensor IDs (low byte; high byte = sensor type), profile IDs
+  (G-Mode `0xAB` is never listed);
+* for each fan, the temperature sensors it follows;
+* whether `GameShiftStatus` answers (G-series machine → G-Mode available).
+
+Every call goes through `invoke()` (one mutex, `GetMethod` → `SpawnInstance` → `Put("arg2")` →
+`ExecMethod` → `Get("argr")`). `invoke()` is private and only reachable through:
+
+* `read()` — refuses any (method, op) not on the **read allow-list**;
+* `write()` — refuses any (method, op) not on the **write allow-list**.
+
+Public writes:
+
+| Method | Firmware call | Validation |
+|---|---|---|
+| `setProfile(id)` | `Thermal_Control` op `0x01` | `id` must be an enumerated profile or Custom `0x00`; G-Mode refused |
+| `setGMode(on, profileWhenOff)` | `Thermal_Control` op `0x01` with `0xAB` / the profile | G-series only; the off-profile must be enumerated |
+| `setFanBoost(fan, boost)` | `Thermal_Control` op `0x02` | fan must be enumerated; boost ≤ `kMaxFanBoost` (100) |
+
+Return values `0xFFFFFFFF` / `0xFFFFFFFE` are treated as errors (`isAwccError`).
+
+### `BiosAttributes`
+
+Connects to `ROOT\DCIM\SYSMAN\BIOSATTRIBUTES`. Attribute names in WQL are checked to be
+`[A-Za-z0-9_]` only. `set(name, value)`:
+
+* only `PrimaryBattChargeCfg`, `CustomChargeStart`, `CustomChargeStop` are allowed;
+* refuses when the BIOS admin password is set (read from `ROOT\DCIM\SYSMAN\WMISECURITY`);
+* calls `BIOSAttributeInterface.SetAttribute` with `SecType = 0`, `SecHndCount = 0`, empty
+  `SecHandle`, and throws on a non-zero `Status` (1 failed, 2 invalid parameter, 3 access denied,
+  4 not supported, 5 memory, 6 protocol).
+
+### `planChargeChange`
+
+Pure function (no firmware access), unit-tested by `tests/charge_plan_test.cpp`. From the current
+settings and the request it validates mode and range, then returns the ordered writes:
+
+1. the mode, if it changes — first, because the thresholds are read-only unless the mode is Custom;
+2. the thresholds, ordered so `stop − start ≥ 5` holds after each write: when the stop goes up
+   (or stays), stop then start; when it goes down, start then stop. Unchanged values are skipped.
+
+The test checks the validation cases and all 3 025 threshold transitions in 5 % steps.
+
+## CLI — `src/cli`
+
+| File | Command |
+|---|---|
+| `main.cpp` | Entry point, dispatch, help, top-level error handling (friendly access-denied message) |
+| `common.h/.cpp` | Shared helpers: profile names ⇄ IDs, `describeProfile`, BIOS mirror read-back, `refuseWrite` (G15 5520 + elevation guard), `noteMyDell` |
+| `status.cpp` | `status` (also exports the battery section for `battery`) |
+| `profile.cpp` | `profile`, `profile set` |
+| `gmode.cpp` | `gmode`, `gmode on/off` |
+| `fan.cpp` | `fan`, `fan boost` |
+| `battery.cpp` | `battery`, `battery mode` |
+
+Every write command follows the same pattern:
+
+1. parse and validate arguments (exit 2 on error);
+2. `refuseWrite()` — machine must be a G15 5520 and the process elevated (exit 1);
+3. check state preconditions (e.g. Custom profile for `fan boost`, G-Mode off for `profile set`);
+4. print `Before`, skip if already in the requested state;
+5. write, then **read back from the firmware** and print `After` / `reads …`;
+6. exit 3 if the firmware does not report the requested state, else print `OK`.
+
+The CLI holds no state between runs: the firmware is the source of truth.
+
+## Safety model, summarised
+
+* Only documented firmware interfaces, through Windows' inbox ACPI-WMI and battery drivers.
+  Never: Dell DLLs, `dcdbas`, SMI/`BFn.DoBFn`, EC or port I/O.
+* Separate read and write allow-lists in the core; anything else throws before reaching WMI.
+* Arguments validated against what the firmware itself reports (enumerated profiles and fans,
+  BIOS attribute bounds), plus fixed caps (fan boost ≤ 100, 5 % charge window).
+* Writes only on the target model and only elevated; each one verified by reading it back.
+* The Game Shift toggle (`GameShiftStatus` op `0x01`) was tried once, had no visible effect on the
+  5520, and was removed from the allow-list.
