@@ -37,7 +37,7 @@ without elevation only Windows-side data (battery health, power source, power mo
 | `src/core` | `myalien-core` static library: WMI wrapper, Dell AWCC thermal interface, Dell BIOS attributes, battery, system queries |
 | `src/cli` | `myalien.exe` command line |
 | `tools/discovery` | Phase 0 read-only discovery script |
-| `docs/discovery` | Discovery dumps from this machine (reference data) |
+| `docs/discovery` | Output folder for discovery dumps — kept local, not committed (git-ignored) |
 
 ## License
 

@@ -2,3 +2,6 @@
 /out/
 /.vs/
 *.user
+
+# Discovery dumps describe one physical machine (and may carry identifiers): keep them local.
+/docs/discovery/*.json
