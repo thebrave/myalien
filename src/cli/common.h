@@ -35,7 +35,7 @@ void printAwThermalAfterWrite(uint8_t profile);
 // returns the exit code to use; nullopt when OK.
 std::optional<int> refuseWrite(const char* what);
 
-// Prints a note when MyDell's service is running.
+// Prints a note when Dell's FusionService (MyDell's backend) is running.
 void noteMyDell();
 
 }  // namespace myalien::cli

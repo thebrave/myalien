@@ -100,7 +100,7 @@ std::optional<int> refuseWrite(const char* what) {
 
 void noteMyDell() {
     if (fusionServiceState() == ServiceState::Running)
-        std::puts("Note    : MyDell is running; its window may show the old state until refreshed.");
+        std::puts("Note    : MyDell or the FusionService is already running.");
 }
 
 }  // namespace myalien::cli
