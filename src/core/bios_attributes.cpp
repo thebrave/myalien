@@ -24,6 +24,7 @@ const wchar_t* expectedAwThermalManagement(uint8_t wmaxProfile) {
         case 0xA5: return L"Battery";
         case 0xA3: return L"Quiet";
         case 0xA1: return L"Performance";
+        case 0xAB: return L"Performance";  // G-Mode shares the value with Balanced-Performance
         default: return nullptr;
     }
 }
