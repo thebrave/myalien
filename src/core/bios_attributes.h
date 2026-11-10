@@ -44,7 +44,8 @@ inline constexpr wchar_t AWThermalManagement[] = L"AWThermalManagement";
 
 // AWThermalManagement value observed to mirror each active WMAX profile on the G15 5520
 // (PLAN.md §1b, all confirmed by writes). nullptr when no mirror is known.
-// Not a reverse map: G-Mode (0xAB) and Balanced-Performance (0xA1) both show "Performance".
+// Not a reverse map: G-Mode (0xAB) and Balanced-Performance (0xA1) both show "Performance",
+// Custom (0x00) and Balanced (0xA0) both show "Balanced".
 const wchar_t* expectedAwThermalManagement(uint8_t wmaxProfile);
 
 class BiosAttributes {

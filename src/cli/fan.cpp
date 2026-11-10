@@ -108,8 +108,9 @@ int setBoost(std::wstring_view fanArg, std::wstring_view boostArg) {
         ok &= r.boost && *r.boost == *boost;
     }
 
-    // Fans take a few seconds to settle; sample the speed so the effect is visible.
-    for (int s = 1; s <= 5; ++s) {
+    // On the G15 5520 fans start reacting after ~3-4 s and settle a few seconds later;
+    // sample the speed so the effect is visible.
+    for (int s = 1; s <= 8; ++s) {
         Sleep(1000);
         std::string line = std::format("+{}s     :", s);
         for (uint8_t id : *fans) {
