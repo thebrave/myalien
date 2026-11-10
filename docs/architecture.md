@@ -1,12 +1,13 @@
-# Architecture (Phase 1)
+# Architecture
 
-Phase 1 delivers a static core library and a command-line tool. The Windows service and the tray
-app (Phases 2–3, see [PLAN.md](../PLAN.md)) will reuse the same core library.
+Phase 1 delivered a static core library and a command-line tool. Phase 2 (in progress) adds the
+Windows service; the tray app (Phase 3, see [PLAN.md](../PLAN.md)) will reuse the same pieces.
 
 ```
-myalien.exe (src/cli)          charge_plan_test.exe (tests)
-        │                                │
-        └──────────── myalien-core (src/core) ─────────────┐
+myalien.exe (src/cli)  ──── \\.\pipe\MyAlien ────  myalien-svc.exe (src/svc, LocalSystem)
+        │        (not elevated: STATUS via service)          │
+        │                                                     │
+        └──────────────────── myalien-core (src/core) ────────┘
                 │            │             │               │
             WMI (COM)    WMI (COM)    battery IOCTL   SCM / registry / powrprof
           root\WMI    root\DCIM\SYSMAN    SetupAPI
@@ -20,7 +21,7 @@ myalien.exe (src/cli)          charge_plan_test.exe (tests)
 * `/W4 /permissive- /utf-8`; the tree builds without warnings.
 * **No third-party code.** Only the Windows SDK: COM/WMI (`wbemuuid`, `ole32`, `oleaut32`),
   `setupapi`, `advapi32`; `powrprof.dll` is loaded at run time.
-* Tests: `ctest --test-dir build/vs2022 -C Release` (or run `build/vs2022/tests/Release/charge_plan_test.exe`).
+* Tests: `ctest --test-dir build/vs2022 -C Release` (charge planner, snapshot wire format).
 
 ## Core library — `src/core`
 
@@ -33,6 +34,8 @@ myalien.exe (src/cli)          charge_plan_test.exe (tests)
 | `charge.h/.cpp` | Battery charge settings: `readChargeSettings()` and the pure planner `planChargeChange()` |
 | `battery.h/.cpp` | Battery health and live status through the Windows battery class driver (`IOCTL_BATTERY_QUERY_*`), no elevation needed |
 | `system.h/.cpp` | Machine identity (registry), elevation, `FusionService` state (SCM), Windows power mode (effective overlay scheme), AC/DC |
+| `snapshot.h/.cpp` | `Snapshot`: everything `status` shows, collected with per-section errors (`collectSnapshot`), and its `key=value` wire format (`encodeSnapshot` / `decodeSnapshot`) |
+| `ipc.h/.cpp` | Pipe client and protocol framing: `call(request)`, `OK` / `ERR` responses, server identity check |
 
 ### `Awcc`
 
@@ -105,6 +108,47 @@ Every write command follows the same pattern:
 6. exit 3 if the firmware does not report the requested state, else print `OK`.
 
 The CLI holds no state between runs: the firmware is the source of truth.
+
+## Service — `src/svc` (Phase 2, first increment: read-only)
+
+| File | Responsibility |
+|---|---|
+| `main.cpp` | `myalien-svc [--install \| --uninstall \| --console]`; no argument = started by the SCM |
+| `service.h/.cpp` | SCM integration (`ServiceMain`, control handler: stop, shutdown, power events), install / uninstall, console mode |
+| `pipe_server.h/.cpp` | Named-pipe server and request dispatch |
+| `log.h/.cpp` | `<install dir>\logs\service.log` (rotated at 1 MB), or stderr in console mode |
+
+**Install.** `--install` copies the executable to `%ProgramFiles%\MyAlien` (administrators-only
+write access) and registers that copy: a LocalSystem service must not run from a user-writable
+directory. Automatic start; restart after 5 s on the first two failures.
+
+**Pipe.** `\\.\pipe\MyAlien`, one instance, message mode, overlapped I/O, every wait bounded
+(3 s per I/O) and interruptible by the stop event.
+
+* DACL `D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)`: SYSTEM and Administrators full access,
+  interactive users read/write; remote clients rejected (`PIPE_REJECT_REMOTE_CLIENTS`).
+* Created with `FILE_FLAG_FIRST_PIPE_INSTANCE` and the handle is reused between clients, so no
+  other process can take the name while the service runs.
+* One request per connection; requests are capped at 4 KB, responses at 256 KB.
+
+**Protocol.** Request = one UTF-8 line. Response = `OK` or `ERR <message>`, then a body.
+
+| Request | Body of the `OK` response |
+|---|---|
+| `PING` | `service=MyAlien`, `version=…` |
+| `STATUS` | an encoded `Snapshot` (`v=1`, then `key=value` lines) |
+
+**Client side** (`ipc::call`): waits for the pipe, connects with `SECURITY_IDENTIFICATION` (the
+server cannot impersonate the caller), checks that `GetNamedPipeServerProcessId` is the PID of the
+running `MyAlien` service, then exchanges one message each way with timeouts. The check can be
+bypassed only with `MYALIEN_TRUST_ANY_SERVER=1`, for `--console` development runs.
+
+**CLI use.** `status` and `battery` call `obtainSnapshot()`: collect locally when elevated, else
+ask the service, else collect locally and show why the service was not used.
+
+**Power events** (suspend, resume, AC/DC, power-setting changes) are received and logged; acting
+on them (re-apply after resume, AC/DC rules) is the next increment, together with write requests
+and the MyDell coexistence policy.
 
 ## Safety model, summarised
 

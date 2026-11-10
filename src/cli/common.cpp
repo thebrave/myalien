@@ -2,6 +2,7 @@
 
 #include "core/bios_attributes.h"
 #include "core/error.h"
+#include "core/ipc.h"
 #include "core/system.h"
 
 #include <windows.h>
@@ -97,6 +98,21 @@ std::optional<int> refuseWrite(const char* what) {
         return 1;
     }
     return std::nullopt;
+}
+
+std::pair<Snapshot, std::string> obtainSnapshot(const SnapshotParts& parts) {
+    if (isElevated()) return {collectSnapshot(parts), "local (elevated)"};
+
+    const auto r = ipc::call("STATUS");
+    if (r.response && r.response->ok) {
+        try {
+            return {decodeSnapshot(r.response->body), "MyAlien service"};
+        } catch (const std::exception& e) {
+            return {collectSnapshot(parts), std::format("local (not elevated; bad service answer: {})", e.what())};
+        }
+    }
+    const std::string why = r.response ? r.response->error : toString(r.error);
+    return {collectSnapshot(parts), std::format("local (not elevated; {})", why)};
 }
 
 void noteMyDell() {

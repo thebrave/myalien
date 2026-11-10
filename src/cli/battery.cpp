@@ -136,16 +136,9 @@ int cmdBattery(std::span<const std::wstring_view> args) {
     wmi::ComApartment com;
 
     if (args.empty()) {
-        std::optional<BiosAttributes> bios;
-        std::string err;
-        try {
-            bios.emplace();
-            (void)bios->enumeration(attr::PrimaryBattChargeCfg);  // surfaces access denied early
-        } catch (const HrError& e) {
-            err = e.accessDenied() ? "unavailable (access denied - run from an elevated prompt)" : e.what();
-            bios.reset();
-        }
-        printBatterySection(bios ? &*bios : nullptr, err);
+        const auto [snapshot, source] = obtainSnapshot({.thermal = false});
+        std::printf("Source        : %s\n", source.c_str());
+        printBatterySection(snapshot);
         return 0;
     }
     if (args[0] == L"mode" && args.size() >= 2) return setMode(args.subspan(1));

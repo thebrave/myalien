@@ -8,7 +8,8 @@ the battery class driver, power APIs). No Dell DLLs, no direct hardware access. 
 without MyDell installed.
 
 Status: **Phase 1 done** — a command-line tool, every command verified on a G15 5520.
-Next: a Windows service and a tray app (see [PLAN.md](PLAN.md)).
+Phase 2 in progress — a read-only Windows service lets `myalien status` work without elevation.
+Next: writes through the service, then a tray app (see [PLAN.md](PLAN.md)).
 
 ## What it can do
 
@@ -34,7 +35,9 @@ cmake --build --preset release
 ctest --test-dir build/vs2022 -C Release
 ```
 
-Output: `build/vs2022/src/cli/Release/myalien.exe` (single self-contained file, static CRT).
+Output: `build/vs2022/src/cli/Release/myalien.exe` and `build/vs2022/src/svc/Release/myalien-svc.exe`
+(single self-contained files, static CRT). Install the service with `myalien-svc --install` from an
+elevated prompt (see [docs/cli.md](docs/cli.md)).
 If `cmake` is not on `PATH`, use a "Developer PowerShell for VS 2022" or VS's bundled
 `Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`.
 
@@ -53,7 +56,8 @@ If `cmake` is not on `PATH`, use a "Developer PowerShell for VS 2022" or VS's bu
 |---|---|
 | `src/core` | `myalien-core` static library: WMI wrapper, Dell AWCC thermal interface, Dell BIOS attributes, charge planner, battery, system queries |
 | `src/cli` | `myalien.exe` command line |
-| `tests` | Unit tests (charge planner) |
+| `src/svc` | `myalien-svc.exe` Windows service (pipe server) |
+| `tests` | Unit tests (charge planner, snapshot wire format) |
 | `tools/discovery` | Phase 0 read-only discovery script |
 | `docs` | Documentation; `docs/discovery` holds local discovery dumps (git-ignored) |
 

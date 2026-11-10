@@ -9,14 +9,21 @@
 #include <string>
 #include <string_view>
 
-namespace myalien {
-class BiosAttributes;
-}
+#include "core/snapshot.h"
+
+#include <utility>
 
 namespace myalien::cli {
 
-// Battery section of `status` (health, charge, charge mode). bios may be null (then biosError is shown).
-void printBatterySection(const BiosAttributes* bios, const std::string& biosError);
+// Battery section of `status` (health, charge, charge mode).
+void printBatterySection(const Snapshot& s);
+
+// Snapshot for display, plus a label of where it came from:
+//  * elevated            -> collected locally;
+//  * not elevated        -> asked to the MyAlien service when it is running;
+//  * otherwise           -> collected locally (Dell sections will show access denied).
+// Requires COM initialised on the calling thread.
+std::pair<Snapshot, std::string> obtainSnapshot(const SnapshotParts& parts);
 
 // "balanced", "quiet", ... or a hex ID such as "0xA0".
 std::optional<uint8_t> parseProfile(std::wstring_view arg);

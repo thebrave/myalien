@@ -12,9 +12,13 @@ Running `myalien` with no command is the same as `myalien status`.
 
 ## Privileges and safety rules
 
-* **Dell firmware access needs an elevated prompt** (Run as administrator). Without it, the
-  Dell sections show `unavailable (access denied …)` and write commands refuse to run. Battery
-  health, power source and Windows power mode work without elevation.
+* **Dell firmware access needs an elevated prompt** (Run as administrator) — or, for `status`
+  and `battery`, the MyAlien service (see below). Without either, the Dell sections show
+  `unavailable (access denied …)`. Write commands always need elevation for now. Battery health,
+  power source and Windows power mode work without elevation.
+* **Where `status` / `battery` data comes from** is shown on the `Source` line:
+  `local (elevated)`, `MyAlien service` (not elevated, service running), or
+  `local (not elevated; <reason>)`.
 * **Writes are only enabled on a Dell G15 5520** (`SystemManufacturer = Dell Inc.`,
   `SystemProductName = Dell G15 5520`). Reads work anywhere the interfaces exist.
 * **Every write is read back from the firmware** before the command reports `OK`.
@@ -43,7 +47,7 @@ myalien status
 
 ```
 MyAlien 0.1.0 - Dell Inc. Dell G15 5520 (SKU 0B56, BIOS 1.44.0)
-  Elevated      : yes
+  Source        : MyAlien service
   MyDell        : FusionService running
   Power source  : AC
   Windows mode  : Balanced
@@ -200,3 +204,24 @@ If a BIOS admin password is set, writes are refused (password support is not imp
 ```
 myalien help        (also --help, -h, /?)
 ```
+
+---
+
+# `myalien-svc` — the MyAlien service
+
+```
+myalien-svc --install      Copy to %ProgramFiles%\MyAlien, register and start the service (elevated)
+myalien-svc --uninstall    Stop and remove the service and the installed copy (elevated)
+myalien-svc --console      Run the pipe server in the foreground (development, Ctrl+C to stop)
+```
+
+The service (`MyAlien`, LocalSystem, automatic start, restarts on failure) lets non-elevated
+clients read the Dell data over `\\.\pipe\MyAlien`. In this first increment it is **read-only**:
+it answers `status` / `battery`, logs power events, and changes nothing.
+
+* `--install` copies the executable to `C:\Program Files\MyAlien\myalien-svc.exe` (a SYSTEM service
+  must not run from a user-writable folder such as the build tree). Running it again updates an
+  installed service: it stops it, replaces the executable and starts it.
+* Log: `C:\Program Files\MyAlien\logs\service.log` (rotated at 1 MB).
+* `--console` runs as the current user. Clients refuse it by default because it is not the
+  registered service; set `MYALIEN_TRUST_ANY_SERVER=1` in the client's environment to talk to it.
