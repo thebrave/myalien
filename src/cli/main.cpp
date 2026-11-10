@@ -22,6 +22,9 @@ void printUsage() {
         "  status                Show thermal profile, temperatures, fans, battery and charge settings (read-only)\n"
         "  profile               Show current and offered thermal profiles\n"
         "  profile set <name>    Activate a thermal profile: balanced | balanced-performance | quiet | low-power\n"
+        "  gmode                 Show G-Mode state\n"
+        "  gmode on              Turn G-Mode on\n"
+        "  gmode off [<name>]    Turn G-Mode off and activate a profile (default: balanced)\n"
         "  help                  Show this help\n"
         "\n"
         "Dell firmware interfaces (thermal, BIOS settings) require an elevated prompt.\n",
@@ -41,6 +44,7 @@ int wmain(int argc, wchar_t** argv) {
     try {
         if (cmd == L"status") return myalien::cli::cmdStatus(rest);
         if (cmd == L"profile") return myalien::cli::cmdProfile(rest);
+        if (cmd == L"gmode") return myalien::cli::cmdGMode(rest);
         if (cmd == L"help" || cmd == L"--help" || cmd == L"-h" || cmd == L"/?") {
             printUsage();
             return 0;

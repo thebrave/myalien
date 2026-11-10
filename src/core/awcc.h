@@ -91,7 +91,13 @@ public:
     // std::runtime_error if the firmware rejects the call.
     void setProfile(uint8_t id);
 
+    // Turns G-Mode on (Game Shift on + profile 0xAB) or off (Game Shift off + profileWhenOff,
+    // which must be an offered profile). Verifies Game Shift actually switched before
+    // touching the thermal profile.
+    void setGMode(bool on, uint8_t profileWhenOff = profile::Balanced);
+
 private:
+    void activate(uint8_t id);
     uint32_t read(AwccMethod m, uint8_t op, uint8_t a1 = 0, uint8_t a2 = 0);
     std::optional<uint32_t> tryRead(AwccMethod m, uint8_t op, uint8_t a1 = 0, uint8_t a2 = 0);
     uint32_t write(AwccMethod m, uint8_t op, uint8_t a1 = 0, uint8_t a2 = 0);
