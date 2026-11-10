@@ -269,6 +269,8 @@ $dump.biosAttributes = Section 'Dell BIOS attributes' {
             foreach ($p in $_.CimInstanceProperties) {
                 if ($p.Name -notin 'InstanceName', 'Active') { $o[$p.Name] = $p.Value }
             }
+            # Machine identifiers (service tag / asset tag) are never written to the dump.
+            if ($o['AttributeName'] -in 'SvcTag', 'Asset' -and $o.Contains('CurrentValue')) { $o['CurrentValue'] = '<redacted>' }
             $o
         })
     }
