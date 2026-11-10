@@ -45,6 +45,9 @@ const char* profileName(uint8_t id);
 const char* fanName(uint8_t id);
 const char* sensorName(uint8_t id);
 
+// Firmware's own G-Mode value; never exceeded (the Linux driver allows up to 255).
+inline constexpr uint8_t kMaxFanBoost = 100;
+
 constexpr bool isAwccError(uint32_t v) noexcept { return v == 0xFFFFFFFFu || v == 0xFFFFFFFEu; }
 
 struct AwccFan {
@@ -85,8 +88,8 @@ public:
     std::optional<bool> gameShift();
 
     // --- writes (allow-listed operations only)
-    // Activates one of the profiles the firmware enumerated (caps().profiles).
-    // Custom (0x00) and G-Mode (0xAB) are refused here: they get dedicated commands.
+    // Activates one of the profiles the firmware enumerated (caps().profiles), or Custom (0x00).
+    // G-Mode (0xAB) is refused here: use setGMode.
     // Throws std::invalid_argument for a profile not offered by this machine,
     // std::runtime_error if the firmware rejects the call.
     void setProfile(uint8_t id);
@@ -95,6 +98,10 @@ public:
     // offered profile). Only on G-series machines (Game Shift readable). Game Shift itself is
     // never written; its status is informational.
     void setGMode(bool on, uint8_t profileWhenOff = profile::Balanced);
+
+    // Sets the boost of one fan (Thermal_Control op 0x02), 0..kMaxFanBoost.
+    // On the G15 5520 boost behaves as a percentage: G-Mode sets 100 (PLAN.md §7).
+    void setFanBoost(uint8_t fanId, uint8_t boost);
 
 private:
     void activate(uint8_t id);

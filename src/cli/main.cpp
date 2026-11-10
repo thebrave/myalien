@@ -22,6 +22,9 @@ void printUsage() {
         "  status                Show thermal profile, temperatures, fans, battery and charge settings (read-only)\n"
         "  profile               Show current and offered thermal profiles\n"
         "  profile set <name>    Activate a thermal profile: balanced | balanced-performance | quiet | low-power\n"
+        "                        | custom\n"
+        "  fan                   Show fan speed and boost\n"
+        "  fan boost <fan> <n>   Set fan boost 0-100 in the Custom profile: cpu | gpu | all\n"
         "  gmode                 Show G-Mode state\n"
         "  gmode on              Turn G-Mode on\n"
         "  gmode off [<name>]    Turn G-Mode off and activate a profile (default: balanced)\n"
@@ -50,6 +53,7 @@ int wmain(int argc, wchar_t** argv) {
         if (cmd == L"profile") return myalien::cli::cmdProfile(rest);
         if (cmd == L"gmode") return myalien::cli::cmdGMode(rest);
         if (cmd == L"battery") return myalien::cli::cmdBattery(rest);
+        if (cmd == L"fan") return myalien::cli::cmdFan(rest);
         if (cmd == L"help" || cmd == L"--help" || cmd == L"-h" || cmd == L"/?") {
             printUsage();
             return 0;

@@ -27,8 +27,9 @@ int usage() {
         "  myalien profile                 Show current and offered thermal profiles\n"
         "  myalien profile set <profile>   Activate a profile (elevated prompt required)\n"
         "\n"
-        "<profile>: balanced | balanced-performance | quiet | low-power, or a hex ID such as 0xA0.\n"
-        "Only profiles offered by the firmware are accepted. For G-Mode use `myalien gmode`.\n",
+        "<profile>: balanced | balanced-performance | quiet | low-power | custom, or a hex ID such as 0xA0.\n"
+        "Only profiles offered by the firmware (plus custom) are accepted. For G-Mode use `myalien gmode`.\n"
+        "In custom, set fan speeds with `myalien fan boost`.\n",
         stderr);
     return 2;
 }

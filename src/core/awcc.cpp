@@ -29,6 +29,7 @@ constexpr uint8_t kOpFanSensorId = 0x02;
 constexpr uint8_t kOpGameShiftGet = 0x02;
 // Thermal_Control ops
 constexpr uint8_t kOpActivateProfile = 0x01;
+constexpr uint8_t kOpSetFanBoost = 0x02;
 
 constexpr unsigned kMaxResources = 16;  // sanity bound per resource type
 
@@ -58,7 +59,7 @@ bool isAllowedRead(AwccMethod m, uint8_t op) {
 // Write operations this module may send. Grows one operation at a time, each verified on the G15 5520.
 bool isAllowedWrite(AwccMethod m, uint8_t op) {
     switch (m) {
-        case AwccMethod::ThermalControl: return op == kOpActivateProfile;
+        case AwccMethod::ThermalControl: return op == kOpActivateProfile || op == kOpSetFanBoost;
         default: return false;
     }
 }
@@ -243,13 +244,25 @@ std::optional<bool> Awcc::gameShift() {
 
 // ---------------------------------------------------------------------------------------------
 void Awcc::setProfile(uint8_t id) {
-    if (id == profile::Custom || id == profile::GMode)
-        throw std::invalid_argument(std::format("{} is not set through `profile set`", profileName(id)));
-    if (std::find(caps_.profiles.begin(), caps_.profiles.end(), id) == caps_.profiles.end())
+    if (id == profile::GMode) throw std::invalid_argument("G-Mode is not set through `profile set`");
+    // Custom is never enumerated but is available on every AWCC machine (Linux driver, tcc-g15).
+    if (id != profile::Custom && std::find(caps_.profiles.begin(), caps_.profiles.end(), id) == caps_.profiles.end())
         throw std::invalid_argument(
             std::format("profile 0x{:02X} ({}) is not offered by this machine's firmware", id, profileName(id)));
 
     activate(id);
+}
+
+void Awcc::setFanBoost(uint8_t fanId, uint8_t boost) {
+    const bool known = std::any_of(caps_.fans.begin(), caps_.fans.end(), [&](const AwccFan& f) { return f.id == fanId; });
+    if (!known) throw std::invalid_argument(std::format("fan 0x{:02X} is not present on this machine", fanId));
+    if (boost > kMaxFanBoost)
+        throw std::invalid_argument(std::format("fan boost {} is above the maximum of {}", boost, kMaxFanBoost));
+
+    const uint32_t r = write(AwccMethod::ThermalControl, kOpSetFanBoost, fanId, boost);
+    if (isAwccError(r))
+        throw std::runtime_error(
+            std::format("AWCC: firmware rejected boost {} for fan 0x{:02X} (argr 0x{:08X})", boost, fanId, r));
 }
 
 void Awcc::activate(uint8_t id) {

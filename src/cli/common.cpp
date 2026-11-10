@@ -28,6 +28,7 @@ constexpr ProfileAlias kAliases[] = {
     {L"low-power", profile::LowPower},
     {L"cool", profile::Cool},
     {L"performance", profile::Performance},
+    {L"custom", profile::Custom},
 };
 
 std::wstring lower(std::wstring_view s) {
