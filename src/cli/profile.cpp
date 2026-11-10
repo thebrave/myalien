@@ -18,7 +18,7 @@ void printProfiles(Awcc& awcc) {
     std::printf("Offered :\n");
     for (uint8_t p : awcc.caps().profiles)
         std::printf("  %c %s\n", p == cur ? '*' : ' ', describeProfile(p).c_str());
-    if (const auto gs = awcc.gameShift()) std::printf("G-Mode  : %s\n", *gs ? "on" : "off");
+    if (awcc.caps().gameShift) std::printf("G-Mode  : %s\n", cur == profile::GMode ? "on" : "off");
 }
 
 int usage() {
@@ -42,12 +42,12 @@ int setProfile(std::wstring_view arg) {
     if (const auto refused = refuseWrite("Changing the thermal profile")) return *refused;
 
     Awcc awcc;
-    if (const auto gs = awcc.gameShift(); gs && *gs) {
+    const uint8_t before = awcc.currentProfile();
+    if (before == profile::GMode) {
         std::fputs("G-Mode is on. Use `myalien gmode off <profile>` to leave it.\n", stderr);
         return 1;
     }
 
-    const uint8_t before = awcc.currentProfile();
     std::printf("Before  : %s\n", describeProfile(before).c_str());
     if (before == *target) {
         std::puts("Already active, nothing to do.");

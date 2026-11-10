@@ -176,7 +176,7 @@ Resolved by Phase 0: profile list (USTT: A0/A1/A3/A5), charge attributes exist, 
 
 Still to verify in Phase 1 (first writes, one at a time, with MyDell open to cross-check):
 * ~~Profile switch via `Thermal_Control` op 0x01~~ — verified for A0/A1/A3 (A5 was the starting state). Still open: does MyDell's window follow without reopening it?
-* G-Mode: GameShift toggle + `0xAB` (Linux G-series sequence) — and how MyDell reflects it.
+* G-Mode: the Linux G-series sequence (GameShift toggle, then `0xAB`) failed on the 5520 — the toggle (GameShiftStatus op 0x01) left the status at 0, so it was removed from the write allow-list. Now following tcc-g15: activate `0xAB` directly via `Thermal_Control`, G-Mode state = current profile `0xAB`, Game Shift only displayed. To verify: `0xAB` accepted and read back; what `AWThermalManagement` and Game Shift show in G-Mode; how MyDell reflects it. Known from tcc-g15 users: a ~1 s system freeze when switching, and the firmware may keep G-Mode for ~1 min while hot.
 * Custom `0x00` + fan boost: meaning of the value (0–255 raw vs %), whether firmware resets it on profile change / resume.
 * `SetAttribute` on `PrimaryBattChargeCfg` / `CustomChargeStart/Stop`: applies immediately or after reboot? The integer attributes carry `[ReadOnlyIfNot:PrimaryBattChargeCfg=Custom]` while `ReadOnly` is 0, so confirm whether a threshold write is rejected until the mode is Custom. Stop − start ≥ 5 must hold at every step.
 * `AWThermalManagement`: mapping fully confirmed, and a WMAX write updates it within 2 s. Still open: does the profile survive a reboot with Fusion stopped? Never written by MyAlien (WMAX is the write path); read-only.

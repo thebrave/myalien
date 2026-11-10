@@ -24,7 +24,8 @@ constexpr uint8_t kOpFanBoost = 0x0C;
 constexpr uint8_t kOpFanSensorCount = 0x01;
 constexpr uint8_t kOpFanSensorId = 0x02;
 // GameShiftStatus ops
-constexpr uint8_t kOpGameShiftToggle = 0x01;
+// Op 0x01 (toggle) is deliberately not used: on the G15 5520 it did not change the reported
+// status (2026-11-10), and tcc-g15 enables G-Mode without it.
 constexpr uint8_t kOpGameShiftGet = 0x02;
 // Thermal_Control ops
 constexpr uint8_t kOpActivateProfile = 0x01;
@@ -58,7 +59,6 @@ bool isAllowedRead(AwccMethod m, uint8_t op) {
 bool isAllowedWrite(AwccMethod m, uint8_t op) {
     switch (m) {
         case AwccMethod::ThermalControl: return op == kOpActivateProfile;
-        case AwccMethod::GameShiftStatus: return op == kOpGameShiftToggle;
         default: return false;
     }
 }
@@ -258,31 +258,14 @@ void Awcc::activate(uint8_t id) {
         throw std::runtime_error(std::format("AWCC: firmware rejected profile 0x{:02X} (argr 0x{:08X})", id, r));
 }
 
-// G-series sequence (as documented for the Linux driver): Game Shift is a toggle, so read it,
-// toggle only if it differs from the wanted state, confirm it switched, then activate the
-// matching thermal profile (G-Mode 0xAB when on, a regular profile when off).
+// G-Mode is thermal profile 0xAB. It is not enumerated by the firmware, but on G-series
+// machines (Game Shift answers) it is accepted directly, as tcc-g15 does on G15 5511-5535.
+// Leaving it means activating a regular profile. Game Shift is not toggled (see kOpGameShiftGet).
 void Awcc::setGMode(bool on, uint8_t profileWhenOff) {
-    if (!caps_.gameShift) throw std::invalid_argument("G-Mode (Game Shift) is not supported on this machine");
+    if (!caps_.gameShift) throw std::invalid_argument("G-Mode is not supported on this machine (no Game Shift)");
     if (!on && std::find(caps_.profiles.begin(), caps_.profiles.end(), profileWhenOff) == caps_.profiles.end())
         throw std::invalid_argument(std::format("profile 0x{:02X} ({}) is not offered by this machine's firmware",
                                                 profileWhenOff, profileName(profileWhenOff)));
-
-    const auto before = gameShift();
-    if (!before) throw std::runtime_error("AWCC: Game Shift status not readable");
-
-    if (*before != on) {
-        const uint32_t r = write(AwccMethod::GameShiftStatus, kOpGameShiftToggle);
-        if (isAwccError(r)) throw std::runtime_error(std::format("AWCC: Game Shift toggle rejected (argr 0x{:08X})", r));
-
-        std::optional<bool> now;
-        for (int i = 0; i < 10; ++i) {
-            now = gameShift();
-            if (now && *now == on) break;
-            Sleep(100);
-        }
-        if (!now || *now != on)
-            throw std::runtime_error("AWCC: Game Shift did not switch; thermal profile left unchanged");
-    }
 
     activate(on ? profile::GMode : profileWhenOff);
 }

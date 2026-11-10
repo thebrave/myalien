@@ -24,11 +24,13 @@ int usage() {
     return 2;
 }
 
+// G-Mode state is the active thermal profile (0xAB). Game Shift is shown for information only:
+// on the G15 5520 its relation to G-Mode is still being observed.
 void printState(Awcc& awcc, const char* label) {
-    const auto gs = awcc.gameShift();
     const uint8_t p = awcc.currentProfile();
-    std::printf("%-8s: G-Mode %s, profile %s\n", label, gs ? (*gs ? "on" : "off") : "unknown",
-                describeProfile(p).c_str());
+    const auto gs = awcc.gameShift();
+    std::printf("%-8s: G-Mode %s, profile %s, Game Shift %s\n", label, p == profile::GMode ? "on" : "off",
+                describeProfile(p).c_str(), gs ? (*gs ? "on" : "off") : "n/a");
 }
 
 int setGMode(bool on, uint8_t profileWhenOff) {
@@ -41,25 +43,26 @@ int setGMode(bool on, uint8_t profileWhenOff) {
     }
 
     printState(awcc, "Before");
-    const auto gsBefore = awcc.gameShift();
-    const uint8_t pBefore = awcc.currentProfile();
     const uint8_t wanted = on ? profile::GMode : profileWhenOff;
-    if (gsBefore && *gsBefore == on && pBefore == wanted) {
+    if (awcc.currentProfile() == wanted) {
         std::puts("Already in that state, nothing to do.");
         return 0;
     }
 
     awcc.setGMode(on, profileWhenOff);
 
-    // Read back both halves of the state from the firmware.
-    const auto gsAfter = awcc.gameShift();
+    // Read back from the firmware. Leaving G-Mode may be delayed by the firmware while the
+    // machine is hot (reported by tcc-g15 users), so report rather than retry.
     const uint8_t pAfter = awcc.currentProfile();
     printState(awcc, "After");
     printAwThermalAfterWrite(pAfter);
     noteMyDell();
 
-    if (!gsAfter || *gsAfter != on || pAfter != wanted) {
-        std::fputs("G-Mode did not end up in the requested state (see After).\n", stderr);
+    if (pAfter != wanted) {
+        std::fputs(on ? "Firmware did not report G-Mode after the request.\n"
+                      : "Firmware still reports another profile. If the machine is hot, the firmware may keep "
+                        "G-Mode for about a minute; run `myalien gmode` again shortly.\n",
+                   stderr);
         return 3;
     }
     std::puts("OK");

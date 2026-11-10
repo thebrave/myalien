@@ -65,8 +65,13 @@ void printThermal(std::optional<std::wstring>& awThermal) {
         for (uint8_t p : caps.profiles) avail += std::format("{}{} (0x{:02X})", avail.empty() ? "" : ", ", profileName(p), p);
         field("Available", avail.empty() ? "none" : avail);
 
-        if (const auto gs = awcc.gameShift()) field("G-Mode", *gs ? "on" : "off");
-        else field("G-Mode", "not supported");
+        if (caps.gameShift) {
+            const auto gs = awcc.gameShift();
+            field("G-Mode", std::format("{}   (Game Shift: {})", cur == profile::GMode ? "on" : "off",
+                                        gs ? (*gs ? "on" : "off") : "n/a"));
+        } else {
+            field("G-Mode", "not supported");
+        }
 
         for (const auto& f : caps.fans) {
             const auto r = awcc.fan(f.id);

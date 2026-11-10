@@ -91,9 +91,9 @@ public:
     // std::runtime_error if the firmware rejects the call.
     void setProfile(uint8_t id);
 
-    // Turns G-Mode on (Game Shift on + profile 0xAB) or off (Game Shift off + profileWhenOff,
-    // which must be an offered profile). Verifies Game Shift actually switched before
-    // touching the thermal profile.
+    // Turns G-Mode on (activates profile 0xAB) or off (activates profileWhenOff, which must be an
+    // offered profile). Only on G-series machines (Game Shift readable). Game Shift itself is
+    // never written; its status is informational.
     void setGMode(bool on, uint8_t profileWhenOff = profile::Balanced);
 
 private:
