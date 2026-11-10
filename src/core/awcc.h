@@ -84,9 +84,17 @@ public:
     FanReading fan(uint8_t fanId);
     std::optional<bool> gameShift();
 
+    // --- writes (allow-listed operations only)
+    // Activates one of the profiles the firmware enumerated (caps().profiles).
+    // Custom (0x00) and G-Mode (0xAB) are refused here: they get dedicated commands.
+    // Throws std::invalid_argument for a profile not offered by this machine,
+    // std::runtime_error if the firmware rejects the call.
+    void setProfile(uint8_t id);
+
 private:
     uint32_t read(AwccMethod m, uint8_t op, uint8_t a1 = 0, uint8_t a2 = 0);
     std::optional<uint32_t> tryRead(AwccMethod m, uint8_t op, uint8_t a1 = 0, uint8_t a2 = 0);
+    uint32_t write(AwccMethod m, uint8_t op, uint8_t a1 = 0, uint8_t a2 = 0);
     uint32_t invoke(AwccMethod m, uint32_t arg);
     void discover();
 

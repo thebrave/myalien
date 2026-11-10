@@ -36,17 +36,6 @@ std::string optNum(const std::optional<uint32_t>& v, std::string_view unit = "")
 
 std::string mWh(uint32_t v) { return std::format("{:.1f} Wh", v / 1000.0); }
 
-const char* firmwareThermalHint(uint8_t p) {
-    // Observed in Phase 0: BIOS attribute AWThermalManagement mirrors the active WMAX profile.
-    switch (p) {
-        case profile::Balanced: return "Balanced";
-        case profile::LowPower: return "Battery";
-        case profile::Quiet: return "Quiet";
-        case profile::BalancedPerformance: return "Performance";
-        default: return nullptr;
-    }
-}
-
 // ---------------------------------------------------------------------------------------------
 void printSystem() {
     const auto m = machineInfo();
@@ -98,8 +87,8 @@ void printThermal(std::optional<std::wstring>& awThermal) {
         }
 
         if (awThermal) {
-            const char* hint = firmwareThermalHint(cur);
-            if (hint && toWide(hint) != *awThermal)
+            const wchar_t* hint = expectedAwThermalManagement(cur);
+            if (hint && hint != *awThermal)
                 line("  note: AWThermalManagement does not mirror the active profile (unexpected, see PLAN.md 1b).");
         }
     } catch (const std::exception& e) {

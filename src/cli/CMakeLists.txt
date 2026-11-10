@@ -1,2 +1,2 @@
-add_executable(myalien main.cpp status.cpp)
+add_executable(myalien main.cpp status.cpp profile.cpp)
 target_link_libraries(myalien PRIVATE myalien-core)

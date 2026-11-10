@@ -25,6 +25,8 @@ constexpr uint8_t kOpFanSensorCount = 0x01;
 constexpr uint8_t kOpFanSensorId = 0x02;
 // GameShiftStatus ops
 constexpr uint8_t kOpGameShiftGet = 0x02;
+// Thermal_Control ops
+constexpr uint8_t kOpActivateProfile = 0x01;
 
 constexpr unsigned kMaxResources = 16;  // sanity bound per resource type
 
@@ -47,6 +49,14 @@ bool isAllowedRead(AwccMethod m, uint8_t op) {
                        kOpCurrentProfile, kOpFanBoost});
         case AwccMethod::GetFanSensors: return in({kOpFanSensorCount, kOpFanSensorId});
         case AwccMethod::GameShiftStatus: return in({kOpGameShiftGet});
+        default: return false;
+    }
+}
+
+// Write operations this module may send. Grows one operation at a time, each verified on the G15 5520.
+bool isAllowedWrite(AwccMethod m, uint8_t op) {
+    switch (m) {
+        case AwccMethod::ThermalControl: return op == kOpActivateProfile;
         default: return false;
     }
 }
@@ -144,6 +154,13 @@ uint32_t Awcc::read(AwccMethod m, uint8_t op, uint8_t a1, uint8_t a2) {
     return invoke(m, packArg(op, a1, a2));
 }
 
+uint32_t Awcc::write(AwccMethod m, uint8_t op, uint8_t a1, uint8_t a2) {
+    if (!isAllowedWrite(m, op))
+        throw std::logic_error(std::format("AWCC: refusing non allow-listed write (method 0x{:02X}, op 0x{:02X})",
+                                           static_cast<unsigned>(m), op));
+    return invoke(m, packArg(op, a1, a2));
+}
+
 std::optional<uint32_t> Awcc::tryRead(AwccMethod m, uint8_t op, uint8_t a1, uint8_t a2) {
     const uint32_t v = read(m, op, a1, a2);
     if (isAwccError(v)) return std::nullopt;
@@ -220,6 +237,19 @@ std::optional<bool> Awcc::gameShift() {
     const auto v = tryRead(AwccMethod::GameShiftStatus, kOpGameShiftGet);
     if (!v) return std::nullopt;
     return *v != 0;
+}
+
+// ---------------------------------------------------------------------------------------------
+void Awcc::setProfile(uint8_t id) {
+    if (id == profile::Custom || id == profile::GMode)
+        throw std::invalid_argument(std::format("{} is not set through `profile set`", profileName(id)));
+    if (std::find(caps_.profiles.begin(), caps_.profiles.end(), id) == caps_.profiles.end())
+        throw std::invalid_argument(
+            std::format("profile 0x{:02X} ({}) is not offered by this machine's firmware", id, profileName(id)));
+
+    const uint32_t r = write(AwccMethod::ThermalControl, kOpActivateProfile, id);
+    if (isAwccError(r))
+        throw std::runtime_error(std::format("AWCC: firmware rejected profile 0x{:02X} (argr 0x{:08X})", id, r));
 }
 
 }  // namespace myalien

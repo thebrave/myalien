@@ -18,6 +18,16 @@ std::wstring whereName(const wchar_t* field, const wchar_t* name) {
 
 }  // namespace
 
+const wchar_t* expectedAwThermalManagement(uint8_t wmaxProfile) {
+    switch (wmaxProfile) {
+        case 0xA0: return L"Balanced";
+        case 0xA5: return L"Battery";
+        case 0xA3: return L"Quiet";
+        case 0xA1: return L"Performance";
+        default: return nullptr;
+    }
+}
+
 BiosAttributes::BiosAttributes() : ns_(wmi::Namespace::connect(L"ROOT\\DCIM\\SYSMAN\\BIOSATTRIBUTES")) {}
 
 std::optional<EnumAttribute> BiosAttributes::enumeration(const wchar_t* name) const {
