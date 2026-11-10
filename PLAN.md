@@ -33,7 +33,7 @@ and `docs/discovery/discovery-fusion-stopped-20261109-201722.json` (`FusionServi
 | 19:16:45Z, Fusion stopped | `0xA0` Balanced | Balanced |
 | 19:37:15Z, Fusion running | `0xA0` Balanced | Balanced |
 
-Quiet and Performance were not observed, so `0xA3` and `0xA1` are not mapped to those BIOS strings yet. Kernel calls `0xA1` USTT Balanced-Performance; that is the spec name, not this machine's BIOS label. The return to Balanced happened in the same interval as stopping Fusion. The dumps cannot tell a mode change made before the stop from a reset caused by the stop, and they do not show that the BIOS attribute survives reboot. G-Mode and Custom/fan-boost are not values of this attribute.
+**Confirmed 2026-11-10 by `myalien profile set`** (elevated, Fusion running): writing `0xA3` → `Quiet`, `0xA1` → `Performance`, `0xA0` → `Balanced`, each read back within the 2 s poll. Full mapping: Balanced=`0xA0`, Performance=`0xA1`, Quiet=`0xA3`, Battery=`0xA5`. Kernel calls `0xA1` USTT Balanced-Performance; that is the spec name, not this machine's BIOS label. The return to Balanced happened in the same interval as stopping Fusion. The dumps cannot tell a mode change made before the stop from a reset caused by the stop, and they do not show that the BIOS attribute survives reboot. G-Mode and Custom/fan-boost are not values of this attribute.
 
 **WMAX** — instance `ACPI\PNP0C14\AWCC_0`. System description `0x04000202` → 2 fans, 2 sensors, 0 unknown, 4 profiles.
 
@@ -165,7 +165,7 @@ Stopping or uninstalling MyDell is the user's choice; the app never stops/disabl
 | Phase | Deliverable | Writes to firmware? |
 |---|---|---|
 | **0. Discovery** ✅ | `tools/discovery/Invoke-Discovery.ps1` → `docs/discovery/*.json`. Elevated read-only PowerShell dump: WMAX instance name, system description, all resource IDs, profiles, sensors/fans, current profile, G-Mode status, fan boosts; all BIOS attributes matching Batt/Charge/Therm/Fan; battery static data; WMI event classes in `root\wmi` + any `BIOSEvent` emitted by Fn shortcuts. Run once with MyDell running and once with `FusionService` stopped. Dumps stay local (git-ignored); the findings are summarised in §1b. | No |
-| **1. Core + CLI** (in progress) | CMake skeleton, `myalien-core` + `myalien.exe`: `status`, `profile get/set`, `gmode on/off`, `fan boost`, `battery status`, `battery mode set`. Manually verify each write against MyDell's display. **Done**: skeleton, core (WMI, WMAX reads, BIOS attribute reads, battery IOCTL, system/MyDell/power-mode), read-only `status`. **Next**: write path (allow-listed `Thermal_Control`, GameShift toggle, `SetAttribute`) + the Phase 1 tests listed in §7. | Yes (manual, one at a time) |
+| **1. Core + CLI** (in progress) | CMake skeleton, `myalien-core` + `myalien.exe`: `status`, `profile get/set`, `gmode on/off`, `fan boost`, `battery status`, `battery mode set`. Manually verify each write against MyDell's display. **Done**: skeleton, core (WMI, WMAX reads, BIOS attribute reads, battery IOCTL, system/MyDell/power-mode), read-only `status`, `profile` / `profile set` (verified on the 5520: A5→A3→A1→A0→A3, firmware read-back OK each time). **Next**: `gmode on/off`, `battery mode`, then Custom + fan boost; the remaining Phase 1 tests are listed in §7. | Yes (manual, one at a time) |
 | **2. Service** | `myalien-svc.exe`: install/uninstall, pipe protocol, MyDell detector, coexist/standalone policy, persistence, re-apply on boot/resume, conflict guard. | Yes |
 | **3. Tray** | `myalien-tray.exe`: tray menu + status dialog, notifications on external changes. | via service |
 | **4. Extras** | Custom fan curve, Windows power-mode linking, battery-care reminders, optional global G-Mode hotkey, installer (WiX MSI or a simple self-install). | via service |
@@ -175,11 +175,11 @@ Stopping or uninstalling MyDell is the user's choice; the app never stops/disabl
 Resolved by Phase 0: profile list (USTT: A0/A1/A3/A5), charge attributes exist, `SetAttribute` signature, no BIOS password.
 
 Still to verify in Phase 1 (first writes, one at a time, with MyDell open to cross-check):
-* Profile switch via `Thermal_Control` op 0x01 for each of A0/A1/A3/A5 — does MyDell follow?
+* ~~Profile switch via `Thermal_Control` op 0x01~~ — verified for A0/A1/A3 (A5 was the starting state). Still open: does MyDell's window follow without reopening it?
 * G-Mode: GameShift toggle + `0xAB` (Linux G-series sequence) — and how MyDell reflects it.
 * Custom `0x00` + fan boost: meaning of the value (0–255 raw vs %), whether firmware resets it on profile change / resume.
 * `SetAttribute` on `PrimaryBattChargeCfg` / `CustomChargeStart/Stop`: applies immediately or after reboot? The integer attributes carry `[ReadOnlyIfNot:PrimaryBattChargeCfg=Custom]` while `ReadOnly` is 0, so confirm whether a threshold write is rejected until the mode is Custom. Stop − start ≥ 5 must hold at every step.
-* `AWThermalManagement`: confirm whether Quiet is `0xA3` and Performance is `0xA1` (not observed). Confirm that a WMAX profile write updates the attribute immediately, and whether the profile survives reboot with Fusion stopped. The three dumps only show Balanced=`0xA0` and Battery=`0xA5` moving together. Never written by MyAlien (WMAX is the write path); read-only.
+* `AWThermalManagement`: mapping fully confirmed, and a WMAX write updates it within 2 s. Still open: does the profile survive a reboot with Fusion stopped? Never written by MyAlien (WMAX is the write path); read-only.
 * Fan boost units: 0–255 raw vs percent. A read of 0 is the current boost, not an unsupported op.
 * If a BIOS admin password is set later, it must be prompted for each write, never stored.
 * Safety: never send undocumented ops; never touch OC/GPIO/Caldera/Tobii/BFn methods.
