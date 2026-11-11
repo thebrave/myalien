@@ -88,3 +88,12 @@ HICON makeProfileIcon(std::optional<uint8_t> profile, int size) {
 }
 
 }  // namespace myalien::tray
+
+namespace myalien::tray {
+
+HICON appIcon(HINSTANCE instance, bool smallIcon) {
+    const int size = GetSystemMetrics(smallIcon ? SM_CXSMICON : SM_CXICON);
+    return static_cast<HICON>(LoadImageW(instance, MAKEINTRESOURCEW(1), IMAGE_ICON, size, size, LR_SHARED));
+}
+
+}  // namespace myalien::tray

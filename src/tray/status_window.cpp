@@ -2,6 +2,7 @@
 
 #include "core/awcc.h"
 #include "core/error.h"
+#include "tray/icon.h"
 #include "tray/requests.h"
 
 #include <commctrl.h>
@@ -167,7 +168,8 @@ void StatusWindow::create() {
     wc.lpszClassName = kClassName;
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     wc.hbrBackground = GetSysColorBrush(COLOR_BTNFACE);
-    wc.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    wc.hIcon = appIcon(instance_, false);
+    wc.hIconSm = appIcon(instance_, true);
     RegisterClassExW(&wc);  // fails harmlessly if already registered
 
     const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;

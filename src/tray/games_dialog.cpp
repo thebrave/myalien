@@ -1,6 +1,7 @@
 #include "tray/games_dialog.h"
 
 #include "core/error.h"
+#include "tray/icon.h"
 
 #include <commctrl.h>
 #include <shobjidl.h>
@@ -96,6 +97,8 @@ void GamesDialog::create(HWND owner) {
     wc.lpszClassName = kClassName;
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     wc.hbrBackground = GetSysColorBrush(COLOR_BTNFACE);
+    wc.hIcon = appIcon(instance_, false);
+    wc.hIconSm = appIcon(instance_, true);
     RegisterClassExW(&wc);
 
     const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;

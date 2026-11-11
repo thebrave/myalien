@@ -1,0 +1,3 @@
+#define MYALIEN_RC_DESCRIPTION "MyAlien service"
+#define MYALIEN_RC_FILENAME "myalien-svc.exe"
+#include "version.rc2"

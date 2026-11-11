@@ -1,0 +1,3 @@
+#define MYALIEN_RC_DESCRIPTION "MyAlien tray icon"
+#define MYALIEN_RC_FILENAME "myalien-tray.exe"
+#include "version.rc2"

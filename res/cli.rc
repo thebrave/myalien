@@ -1,0 +1,3 @@
+#define MYALIEN_RC_DESCRIPTION "MyAlien command line"
+#define MYALIEN_RC_FILENAME "myalien.exe"
+#include "version.rc2"

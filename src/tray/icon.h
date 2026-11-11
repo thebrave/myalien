@@ -12,4 +12,8 @@ namespace myalien::tray {
 // `profile` empty = service unreachable (grey "?"). Caller owns the icon (DestroyIcon).
 HICON makeProfileIcon(std::optional<uint8_t> profile, int sizePx);
 
+// The application icon (res/myalien.ico, resource ID 1) at the system's large or small icon
+// size. Shared: do not destroy. Null if the resource is missing.
+HICON appIcon(HINSTANCE instance, bool smallIcon);
+
 }  // namespace myalien::tray
