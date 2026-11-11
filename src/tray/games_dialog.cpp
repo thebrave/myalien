@@ -109,8 +109,8 @@ void GamesDialog::create(HWND owner) {
     SendMessageW(item(IDC_FILTER), EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"name or folder"));
 
     HWND list = item(IDC_LIST);
-    ListView_SetExtendedListViewStyle(list, LVS_EX_CHECKBOXES | LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
-    const std::pair<const wchar_t*, int> columns[] = {{L"Name", 210}, {L"Source", 96}, {L"Folder or program", 290}};
+    ListView_SetExtendedListViewStyle(list, LVS_EX_CHECKBOXES | LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_INFOTIP);
+    const std::pair<const wchar_t*, int> columns[] = {{L"Name", 190}, {L"Source", 116}, {L"Folder or program", 290}};
     for (int i = 0; i < 3; ++i) {
         LVCOLUMNW col{};
         col.mask = LVCF_TEXT | LVCF_WIDTH;
@@ -204,6 +204,7 @@ void GamesDialog::fill() {
         ListView_SetCheckState(list, n, rows_[i].included);
         ++n;
     }
+    ListView_SetColumnWidth(list, 2, LVSCW_AUTOSIZE_USEHEADER);  // last column takes the remaining width
     SendMessageW(list, WM_SETREDRAW, TRUE, 0);
     SetWindowTextW(item(IDC_FOOTER), footer_.c_str());
     filling_ = false;
@@ -287,6 +288,19 @@ LRESULT GamesDialog::handle(UINT msg, WPARAM wp, LPARAM lp) {
         }
         case WM_NOTIFY: {
             const auto* hdr = reinterpret_cast<const NMHDR*>(lp);
+            if (hdr->idFrom == IDC_LIST && hdr->code == LVN_GETINFOTIPW) {  // full name and path on hover
+                auto* tip = reinterpret_cast<NMLVGETINFOTIPW*>(const_cast<NMHDR*>(hdr));
+                LVITEMW it{};
+                it.mask = LVIF_PARAM;
+                it.iItem = tip->iItem;
+                if (ListView_GetItem(item(IDC_LIST), &it) && static_cast<size_t>(it.lParam) < rows_.size()) {
+                    const auto& g = rows_[static_cast<size_t>(it.lParam)].game;
+                    const std::wstring text =
+                        g.name + L"\n" + (g.source == games::Source::GameBar ? g.exe : g.dir);
+                    wcsncpy_s(tip->pszText, tip->cchTextMax, text.c_str(), _TRUNCATE);
+                }
+                return 0;
+            }
             if (hdr->idFrom != IDC_LIST || hdr->code != LVN_ITEMCHANGED) break;
             const auto* nm = reinterpret_cast<const NMLISTVIEW*>(lp);
             if (nm->uChanged & LVIF_STATE) updateButtons();

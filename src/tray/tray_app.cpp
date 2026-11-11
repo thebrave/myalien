@@ -534,7 +534,7 @@ std::wstring TrayApp::gameNowText() const {
     if (focusedGame_ && gameSettings_.onlyOnAc && !onAcPower().value_or(true))
         return focusedGame_->name + L" is in front, but on battery: no change (Only on AC).";
     if (snapshot_ && snapshot_->fusion == ServiceState::Running)
-        return L"No game in front. Note: MyDell (FusionService) may switch the profile back.";
+        return L"No game in front. MyDell may switch the profile back.";
     return L"No game in front.";
 }
 
