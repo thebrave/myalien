@@ -82,7 +82,8 @@ This is the "USTT" profile family; the legacy `0x96–0x99` codes are not used b
   in MyDell left the profile at `0xA3` but **Game Shift on and boost 100 on both fans** (fans at
   ~4800 rpm). Selecting a profile does not clear it; leaving G-Mode does (activate `0xAB`, then the
   profile). MyAlien detects this state ("G-Mode stuck"), `gmode off` / `profile set` repair it that
-  way, and the monitor treats Game Shift as part of the setting.
+  way (verified: tray "G-Mode stuck" -> GMODE OFF 0xA3 -> Quiet, Game Shift off, fans back to
+  ~600 rpm), and the monitor treats Game Shift as part of the setting.
 * Reported by tcc-g15 users: a short system freeze when switching, and G-Mode kept for about a
   minute while hot.
 
