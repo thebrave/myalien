@@ -155,5 +155,6 @@ The WMI class `BatteryStaticData` fails even elevated, which is why the IOCTL pa
 ## 6. Still to observe
 
 * Whether a non-zero fan boost survives a profile change or resume from sleep.
-* Whether the profile survives a reboot with `FusionService` stopped.
+* Whether the profile survives a **reboot** with `FusionService` stopped. (It survives **sleep**: Quiet
+  was still active after a 33-minute sleep with FusionService stopped, 2026-11-11.)
 * Whether MyDell's window refreshes by itself after MyAlien changes a setting.
