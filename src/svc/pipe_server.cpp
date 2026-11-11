@@ -45,29 +45,49 @@ std::string trim(std::string s) {
 }
 
 // "DOMAIN\user (pid N)" of the connected client, for the audit log. The client connects with
-// SECURITY_IDENTIFICATION, enough to read its token while impersonating.
+// SECURITY_IDENTIFICATION: enough to read its token while impersonating, but not to make calls on
+// its behalf, so the SID is copied out and resolved to a name after RevertToSelf.
 std::string describeClient(HANDLE pipe) {
     ULONG pid = 0;
     GetNamedPipeClientProcessId(pipe, &pid);
-    std::string user = "?";
+
+    std::vector<BYTE> sid;
+    DWORD err = ERROR_SUCCESS;
     if (ImpersonateNamedPipeClient(pipe)) {
         HANDLE token = nullptr;
         if (OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &token)) {
             BYTE buf[256];
             DWORD len = 0;
             if (GetTokenInformation(token, TokenUser, buf, sizeof(buf), &len)) {
-                wchar_t name[128], domain[128];
-                DWORD nameLen = 128, domainLen = 128;
-                SID_NAME_USE use;
-                if (LookupAccountSidW(nullptr, reinterpret_cast<TOKEN_USER*>(buf)->User.Sid, name, &nameLen, domain,
-                                      &domainLen, &use))
-                    user = toUtf8(domain) + "\\" + toUtf8(name);
+                PSID s = reinterpret_cast<TOKEN_USER*>(buf)->User.Sid;
+                sid.assign(static_cast<BYTE*>(s), static_cast<BYTE*>(s) + GetLengthSid(s));
+            } else {
+                err = GetLastError();
             }
             CloseHandle(token);
+        } else {
+            err = GetLastError();
         }
         RevertToSelf();
+    } else {
+        err = GetLastError();
     }
-    return std::format("{} (pid {})", user, pid);
+    if (sid.empty()) return std::format("? (pid {}, token error {})", pid, err);
+
+    wchar_t name[128], domain[128];
+    DWORD nameLen = 128, domainLen = 128;
+    SID_NAME_USE use;
+    if (LookupAccountSidW(nullptr, sid.data(), name, &nameLen, domain, &domainLen, &use))
+        return std::format("{}\\{} (pid {})", toUtf8(domain), toUtf8(name), pid);
+
+    err = GetLastError();
+    std::string sidText = "?";
+    LPWSTR str = nullptr;
+    if (ConvertSidToStringSidW(sid.data(), &str)) {
+        sidText = toUtf8(str);
+        LocalFree(str);
+    }
+    return std::format("{} (pid {}, name lookup error {})", sidText, pid, err);
 }
 
 // Splits a request into at most 5 space-separated tokens of at most 32 printable ASCII characters.
