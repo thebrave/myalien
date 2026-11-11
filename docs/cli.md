@@ -240,3 +240,21 @@ re-read them first and takes ~5 s.
 * Log: `C:\Program Files\MyAlien\logs\service.log` (rotated at 1 MB).
 * `--console` runs as the current user. Clients refuse it by default because it is not the
   registered service; set `MYALIEN_TRUST_ANY_SERVER=1` in the client's environment to talk to it.
+
+---
+
+# `myalien-tray` — tray icon
+
+Start `myalien-tray.exe` as yourself (not elevated); it needs the MyAlien service.
+
+* **Icon**: a coloured letter for the current profile — **Q** Quiet, **B** Balanced,
+  **P** Balanced-Performance, **L** Low-Power, **C** Custom, **G** G-Mode; a grey **?** when the
+  service cannot be reached. The tooltip shows the profile and CPU / GPU temperatures and fan speeds,
+  refreshed every 5 s.
+* **Menu** (left or right click): profile (radio items), G-Mode on/off, battery level and health,
+  **Charging** submenu (Adaptive, Standard, Express, Primarily AC, Custom with its stored range),
+  **Start with Windows**, Refresh, Exit. Fan boost and the custom charge range are set with the
+  command line for now.
+* Changes go through the service like `myalien` commands; a notification appears if one fails, and
+  when a charge-mode change (several seconds) completes.
+* Only one tray icon runs per session.

@@ -8,8 +8,10 @@ the battery class driver, power APIs). No Dell DLLs, no direct hardware access. 
 without MyDell installed.
 
 Status: **Phase 1 done** — a command-line tool, every command verified on a G15 5520.
-Phase 2 in progress — with the Windows service installed, every command works without elevation.
-Next: MyDell coexistence and re-apply after resume, then a tray app (see [PLAN.md](PLAN.md)).
+**Phase 2 done** — a Windows service: every command works without elevation, the last setting is
+kept across sleep / boot, and MyDell is detected and left alone.
+Phase 3 in progress — a tray icon (`myalien-tray.exe`) with a menu for profile, G-Mode and charging
+(see [PLAN.md](PLAN.md)).
 
 ## What it can do
 
@@ -35,9 +37,10 @@ cmake --build --preset release
 ctest --test-dir build/vs2022 -C Release
 ```
 
-Output: `build/vs2022/src/cli/Release/myalien.exe` and `build/vs2022/src/svc/Release/myalien-svc.exe`
-(single self-contained files, static CRT). Install the service with `myalien-svc --install` from an
-elevated prompt (see [docs/cli.md](docs/cli.md)).
+Output: `build/vs2022/src/cli/Release/myalien.exe`, `build/vs2022/src/svc/Release/myalien-svc.exe` and
+`build/vs2022/src/tray/Release/myalien-tray.exe` (single self-contained files, static CRT). Install the
+service with `myalien-svc --install` from an elevated prompt, then start `myalien-tray.exe` as yourself
+(see [docs/cli.md](docs/cli.md)).
 If `cmake` is not on `PATH`, use a "Developer PowerShell for VS 2022" or VS's bundled
 `Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`.
 
@@ -56,7 +59,8 @@ If `cmake` is not on `PATH`, use a "Developer PowerShell for VS 2022" or VS's bu
 |---|---|
 | `src/core` | `myalien-core` static library: WMI wrapper, Dell AWCC thermal interface, Dell BIOS attributes, charge planner, battery, system queries |
 | `src/cli` | `myalien.exe` command line |
-| `src/svc` | `myalien-svc.exe` Windows service (pipe server) |
+| `src/svc` | `myalien-svc.exe` Windows service (pipe server, thermal monitor) |
+| `src/tray` | `myalien-tray.exe` tray icon and menu |
 | `tests` | Unit tests (charge planner, snapshot wire format) |
 | `tools/discovery` | Phase 0 read-only discovery script |
 | `docs` | Documentation; `docs/discovery` holds local discovery dumps (git-ignored) |

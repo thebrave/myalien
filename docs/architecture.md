@@ -190,6 +190,22 @@ change made through MyAlien; without the service they run in-process when elevat
 **Power events** (suspend, resume, AC/DC, power-setting changes) are logged; resume wakes the
 charge refresher and the thermal monitor. AC/DC rules are not implemented.
 
+## Tray — `src/tray` (Phase 3, first increment)
+
+| File | Responsibility |
+|---|---|
+| `main.cpp` | `wWinMain`: per-monitor DPI awareness v2, one instance per session (`Local\MyAlienTray` mutex) |
+| `tray_app.h/.cpp` | Hidden top-level window, notify icon (version 4), tooltip, popup menu, commands, notifications; re-adds the icon on `TaskbarCreated` |
+| `worker.h/.cpp` | Background thread for all pipe calls (STATUS every 5 s, coalesced; writes in order); results posted back as window messages |
+| `icon.h/.cpp` | Profile badge drawn with GDI at the small-icon size: Q quiet, B balanced, P balanced-performance, L low-power, C custom, G G-Mode, grey ? without the service |
+| `autostart.h/.cpp` | "Start with Windows": `HKCU\…\Run\MyAlien` pointing at this executable |
+
+The tray runs as the logged-in user and only talks to the service (no in-process fallback, it is
+never elevated). Menu: current profile and temperatures, profile radio items (firmware profiles +
+Custom), G-Mode toggle (leaves G-Mode to the last regular profile), battery line, charging-mode
+submenu, Start with Windows, Refresh, Exit. Items are greyed while a change is in progress.
+Notifications only for failures and for charge-mode changes (slow, ~5–10 s).
+
 ## Safety model, summarised
 
 * Only documented firmware interfaces, through Windows' inbox ACPI-WMI and battery drivers.
