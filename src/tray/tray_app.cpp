@@ -234,9 +234,10 @@ void TrayApp::updateIcon() {
         const bool stuck = gameShiftStuck(snapshot_->profile, snapshot_->gameShift);
         profile = stuck ? profile::GMode : snapshot_->profile;  // fans behave as in G-Mode: show the G badge
         tip = L"MyAlien · " + toWide(profileName(snapshot_->profile)) +
-              (stuck ? L" · G-Mode stuck (fans at full boost)" : L"") + L"\n" + tempLine(*snapshot_);
+              (stuck ? L" · G-Mode stuck (fans at full boost)" : L"");
+        if (const std::wstring game = gameTipLine(); !game.empty()) tip += L"\n" + game;
+        tip += L"\n" + tempLine(*snapshot_);
     }
-    if (gameMode_.active() && !activeGameName_.empty()) tip += L"\nGame: " + activeGameName_;
     if (tip.size() > 127) tip.resize(127);
 
     NOTIFYICONDATAW nid{sizeof(nid)};
@@ -364,10 +365,8 @@ void TrayApp::showMenu(POINT at) {
     }
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    if (gameMode_.active() && !activeGameName_.empty()) {
-        const std::wstring line = L"Game: " + activeGameName_ + L" → " + gameTargetsText();
+    if (const std::wstring line = gameTipLine(); !line.empty())
         AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, line.c_str());
-    }
     AppendMenuW(menu, MF_STRING | (gameSettings_.enabled ? MF_CHECKED : MF_UNCHECKED), ID_GAMEMODE,
                 L"Game mode: switch automatically while a game is in front");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
@@ -452,16 +451,27 @@ void TrayApp::stopGameMode() {
     if (foregroundHook_) UnhookWinEvent(foregroundHook_);
     foregroundHook_ = nullptr;
     focusedGame_.reset();
+    ignoredGame_.clear();
     foregroundImage_.clear();
+    updateIcon();
     if (gamesDialog_ && gamesDialog_->visible()) return;  // the Games window still shows the list
     gameWatcher_.reset();
     catalog_.reset();
     matcher_.reset();
+    ignoredMatcher_.reset();
 }
 
 void TrayApp::rebuildMatcher() {
     if (!catalog_) return;
     matcher_.emplace(games::applyUserChoices(catalog_->games, gameSettings_.folders, gameSettings_.excluded));
+    // Unticked games are still recognised, only to say why nothing switches.
+    std::vector<games::Game> ignored;
+    for (const auto& g : catalog_->games)
+        if (std::any_of(gameSettings_.excluded.begin(), gameSettings_.excluded.end(), [&](const std::wstring& e) {
+                return CompareStringOrdinal(e.c_str(), -1, games::gameKey(g).c_str(), -1, TRUE) == CSTR_EQUAL;
+            }))
+            ignored.push_back(g);
+    ignoredMatcher_.emplace(std::move(ignored));
     foregroundImage_.clear();  // re-match the current foreground against the new list
     if (foregroundHook_) onForegroundChange();
     pushToWindow();
@@ -524,18 +534,39 @@ std::wstring TrayApp::gameNowText() const {
     if (!gameSettings_.enabled) return L"Game mode is off.";
     if (gameMode_.active() && !activeGameName_.empty()) {
         if (gameMode_.leaving()) return L"Left " + activeGameName_ + L": restoring in a few seconds.";
-        const GamePending& p = *gameMode_.pending();
-        std::wstring back;
-        if (p.savedProfile) back = toWide(profileName(*p.savedProfile));
-        if (p.savedPower) back += (back.empty() ? L"" : L", ") + toWide(toString(*p.savedPower));
+        const std::wstring back = replacedText();
         return L"Now: " + activeGameName_ + (back.empty() ? L" (already at these settings)" : L" · back to " + back + L" after");
     }
     if (!matcher_) return L"Reading the game list…";
+    if (!ignoredGame_.empty()) return ignoredGame_ + L" is in front, but unticked in Games: no change.";
     if (focusedGame_ && gameSettings_.onlyOnAc && !onAcPower().value_or(true))
         return focusedGame_->name + L" is in front, but on battery: no change (Only on AC).";
     if (snapshot_ && snapshot_->fusion == ServiceState::Running)
         return L"No game in front. MyDell may switch the profile back.";
     return L"No game in front.";
+}
+
+std::wstring TrayApp::replacedText() const {
+    if (!gameMode_.active()) return {};
+    const GamePending& p = *gameMode_.pending();
+    std::wstring t;
+    if (p.savedProfile) t = toWide(profileName(*p.savedProfile));
+    if (p.savedPower) t += (t.empty() ? L"" : L", ") + toWide(toString(*p.savedPower));
+    return t;
+}
+
+// One line for the tooltip and the menu. Empty when no game is involved.
+std::wstring TrayApp::gameTipLine() const {
+    if (!gameSettings_.enabled) return {};
+    if (gameMode_.active() && !activeGameName_.empty()) {
+        const std::wstring was = replacedText();
+        if (gameMode_.leaving()) return L"Left " + activeGameName_ + L": restoring" + (was.empty() ? L"" : L" " + was);
+        return L"Game: " + activeGameName_ + (was.empty() ? L" (no change needed)" : L" · was " + was);
+    }
+    if (!ignoredGame_.empty()) return L"Ignored game: " + ignoredGame_ + L" (unticked in Games)";
+    if (focusedGame_ && gameSettings_.onlyOnAc && !onAcPower().value_or(true))
+        return L"Game: " + focusedGame_->name + L" · on battery, no change";
+    return {};
 }
 
 void CALLBACK TrayApp::foregroundHook(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD) {
@@ -549,7 +580,10 @@ void TrayApp::onForegroundChange() {
     const games::Game* g = matcher_ ? matcher_->match(image) : nullptr;
     if (g) focusedGame_ = *g;
     else focusedGame_.reset();
+    const games::Game* ig = !g && ignoredMatcher_ ? ignoredMatcher_->match(image) : nullptr;
+    ignoredGame_ = ig ? ig->name : std::wstring();
     evaluateGameMode();
+    updateIcon();  // tooltip game line (cheap: the icon itself is only redrawn when the profile changes)
     if (window_ && window_->visible()) pushToWindow();  // the Games group's "Now" line
 }
 
@@ -573,7 +607,10 @@ void TrayApp::evaluateGameMode() {
                               ? gameMode_.update(allowed, now, gameSettings_.targets, GetTickCount64())
                               : gameMode_.restoreNow(now);
     if (allowed) activeGameName_ = focusedGame_->name;  // also when switching between two games
-    if (gameMode_.leaving() && !wasLeaving) worker_->requestSnapshot();  // fresh profile for the restore check
+    if (gameMode_.leaving() && !wasLeaving) {
+        worker_->requestSnapshot();  // fresh profile for the restore check
+        updateIcon();                // tooltip: "Left …: restoring …"
+    }
     carryOut(step);
 }
 

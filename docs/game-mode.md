@@ -302,8 +302,8 @@ user and never use the service.
 
 Increments 1–3 are built and used on the author's G15 5520: catalog and `myalien games`, switching
 in the tray, the Games group and the Games window. The status window's group is laid out as in
-the mockup above, with *Leave unchanged* in both lists. Open: a final round of in-use checks of the
-Games window, and whether an added folder should count each subfolder as its own game.
+the mockup above, with *Leave unchanged* in both lists. An added folder is one game (decided).
+The tooltip names the game and what it replaced, and says when an unticked game is in front.
 
 ### Implementation notes (increment 2)
 

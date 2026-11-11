@@ -52,6 +52,8 @@ private:
     void rebuildMatcher();                   // catalog + the user's folders and exclusions
     void openGamesDialog();
     std::wstring gameNowText() const;
+    std::wstring gameTipLine() const;        // tooltip: the game and what it replaced, or why nothing changed
+    std::wstring replacedText() const;       // "Quiet, Balanced": what game mode will restore
     void ensureCatalog();                    // the watcher also runs while game mode is off, for the Games window
     static void CALLBACK foregroundHook(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD);
     static TrayApp* instance_;  // for the WinEvent callback (one TrayApp per process)
@@ -79,6 +81,8 @@ private:
     HWINEVENTHOOK foregroundHook_ = nullptr;
     std::wstring foregroundImage_;
     std::optional<games::Game> focusedGame_;  // the foreground process is this game
+    std::optional<games::Matcher> ignoredMatcher_;  // games unticked in the Games window
+    std::wstring ignoredGame_;                // the foreground process is this unticked game
     std::wstring activeGameName_;             // game that engaged game mode (menu, tooltip)
 };
 

@@ -319,18 +319,21 @@ Start `myalien-tray.exe` as yourself (not elevated); it needs the MyAlien servic
   * The bottom line shows the result of the last change. Closing the window only hides it.
 * **Games window**: every game found (name, launcher, folder or program). Untick a row to never
   treat it as a game (e.g. a browser in Game Bar's list). **Add folder…** adds a game no launcher
-  lists (any program in that folder counts); **Remove** takes it off again. **Rescan** reads the
+  lists (one folder = one game, named after the folder; any program inside it counts); **Remove** takes it off again. **Rescan** reads the
   list now; it is also re-read by itself when a launcher installs or removes a game. The footer
   counts games per launcher.
 * **Right click** opens the **menu**: profile (radio items), G-Mode on/off, battery level and health,
-  **Charging** submenu, **Game mode: switch automatically while a game is in front** (and, while a game has engaged it, a `Game: <name> → …` line),
+  **Charging** submenu, **Game mode: switch automatically while a game is in front** (above it, a game line when one is involved, as in the tooltip),
   *Open MyAlien…*, **Start with Windows**, Refresh, Exit.
 * **Game mode** (off by default, [game-mode.md](game-mode.md)): while a game from the catalog
   (`myalien games`) is in the foreground, the tray sets the thermal profile (through the service)
   and the Windows power mode (itself); default G-Mode + Best performance, on AC only. About 8 s
   after the game leaves the foreground, each value is restored unless something else changed it
   meanwhile. *Exit* restores at once; after a crash or logoff, the next start restores. Only the
-  first switch after turning it on shows a notification; failures always do. Settings live in
+  first switch after turning it on shows a notification; failures always do. The **tooltip** (and
+  the menu) then has a game line: `Game: Caves of Qud · was Quiet, Balanced` (what will be restored),
+  `Left Caves of Qud: restoring …` during the leave delay, `Ignored game: … (unticked in Games)`
+  when an unticked game is in front, or `Game: … · on battery, no change` with *Only on AC*. Settings live in
   `HKCU\Software\MyAlien\GameMode` (per user).
 * Changes go through the service like `myalien` commands. Notifications: a change failed, a
   charge-mode change completed (when the window is closed), **the profile was changed by something
