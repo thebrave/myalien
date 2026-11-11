@@ -32,16 +32,18 @@ SERVICE_STATUS_HANDLE g_statusHandle = nullptr;
 SERVICE_STATUS g_status{};
 ServiceContext* g_ctx = nullptr;  // valid while the service / console server runs
 
-// Creates the events, runs the refresher and the pipe server until stop. Returns the pipe
-// server's result (0 on a clean stop).
+// Runs the charge refresher, the thermal monitor and the pipe server until stop. Returns the
+// pipe server's result (0 on a clean stop).
 DWORD runServer(ServiceContext& ctx, void (*onRunning)()) {
     std::thread refresher([&] { runChargeRefresher(ctx); });
+    std::thread monitor([&] { ctx.monitor.run(ctx); });
     DWORD pipeResult = 0;
     std::thread pipeThread([&] { pipeResult = runPipeServer(ctx); });
     if (onRunning) onRunning();
 
     pipeThread.join();  // returns on stop, or on a fatal pipe error
     SetEvent(ctx.stopEvent);
+    monitor.join();
     refresher.join();
     return pipeResult;
 }
@@ -79,10 +81,10 @@ DWORD WINAPI controlHandler(DWORD control, DWORD eventType, LPVOID /*eventData*/
             return NO_ERROR;
         case SERVICE_CONTROL_POWEREVENT:
             logf("service: power event: {} (0x{:X})", powerEventName(eventType), eventType);
-            // BIOS settings may have changed while asleep (e.g. in BIOS setup after a reboot).
-            if (g_ctx && (eventType == PBT_APMRESUMEAUTOMATIC || eventType == PBT_APMRESUMESUSPEND))
-                SetEvent(g_ctx->refreshEvent);
-            // Next increments: re-apply after resume, AC/DC rules.
+            if (g_ctx && (eventType == PBT_APMRESUMEAUTOMATIC || eventType == PBT_APMRESUMESUSPEND)) {
+                SetEvent(g_ctx->refreshEvent);  // BIOS settings may have changed meanwhile
+                SetEvent(g_ctx->resumeEvent);   // check (and maybe re-apply) the thermal setting
+            }
             return NO_ERROR;
         case SERVICE_CONTROL_INTERROGATE:
             return NO_ERROR;
@@ -96,25 +98,24 @@ void WINAPI serviceMain(DWORD /*argc*/, LPWSTR* /*argv*/) {
     if (!g_statusHandle) return;
     reportStatus(SERVICE_START_PENDING, NO_ERROR, 3000);
 
-    ServiceContext ctx;
-    ctx.stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    ctx.refreshEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    if (!ctx.stopEvent || !ctx.refreshEvent) {
-        reportStatus(SERVICE_STOPPED, GetLastError());
-        return;
+    DWORD pipeResult = 0;
+    {
+        ServiceContext ctx;
+        if (!ctx.ok()) {
+            reportStatus(SERVICE_STOPPED, GetLastError());
+            return;
+        }
+        g_ctx = &ctx;
+
+        const auto m = machineInfo();
+        logf("service: starting MyAlien {} on {} {} (BIOS {})", MYALIEN_VERSION, toUtf8(m.manufacturer),
+             toUtf8(m.product), toUtf8(m.biosVersion));
+
+        pipeResult = runServer(ctx, [] { reportStatus(SERVICE_RUNNING); });
+        if (pipeResult != 0) logf("service: pipe server ended with error {}", pipeResult);
+        logLine("service: stopped");
+        g_ctx = nullptr;
     }
-    g_ctx = &ctx;
-
-    const auto m = machineInfo();
-    logf("service: starting MyAlien {} on {} {} (BIOS {})", MYALIEN_VERSION, toUtf8(m.manufacturer),
-         toUtf8(m.product), toUtf8(m.biosVersion));
-
-    const DWORD pipeResult = runServer(ctx, [] { reportStatus(SERVICE_RUNNING); });
-    if (pipeResult != 0) logf("service: pipe server ended with error {}", pipeResult);
-    logLine("service: stopped");
-    g_ctx = nullptr;
-    CloseHandle(ctx.stopEvent);
-    CloseHandle(ctx.refreshEvent);
     reportStatus(SERVICE_STOPPED, pipeResult);
 }
 
@@ -197,17 +198,13 @@ int runAsService() {
 int runInConsole() {
     initLog(LogTarget::Console);
     ServiceContext ctx;
-    ctx.stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    ctx.refreshEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    if (!ctx.stopEvent || !ctx.refreshEvent) return 1;
+    if (!ctx.ok()) return 1;
     g_ctx = &ctx;
     SetConsoleCtrlHandler(consoleCtrlHandler, TRUE);
     logf("console: MyAlien {} pipe server, elevated: {}. Ctrl+C to stop.", MYALIEN_VERSION,
          isElevated() ? "yes" : "no");
     const DWORD r = runServer(ctx, nullptr);
     g_ctx = nullptr;
-    CloseHandle(ctx.stopEvent);
-    CloseHandle(ctx.refreshEvent);
     return r == 0 ? 0 : 1;
 }
 

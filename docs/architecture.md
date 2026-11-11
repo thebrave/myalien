@@ -117,7 +117,10 @@ The CLI holds no state between runs: the firmware is the source of truth.
 | `main.cpp` | `myalien-svc [--install \| --uninstall \| --console]`; no argument = started by the SCM |
 | `service.h/.cpp` | SCM integration (`ServiceMain`, control handler: stop, shutdown, power events), install / uninstall, console mode |
 | `pipe_server.h/.cpp` | Named-pipe server and request dispatch |
-| `charge_cache.h/.cpp` | Cached BIOS charge settings and their refresher thread; `ServiceContext` shared by all threads |
+| `context.h` | `ServiceContext`: events and state shared by all threads |
+| `charge_cache.h/.cpp` | Cached BIOS charge settings and their refresher thread |
+| `monitor.h/.cpp` | Thermal monitor: watches the firmware, remembers the MyAlien setting, re-applies it, conflict guard |
+| `thermal_state.h/.cpp` | Thermal state read / comparison, `state.ini` persistence |
 | `log.h/.cpp` | `<install dir>\logs\service.log` (rotated at 1 MB), or stderr in console mode |
 
 **Install.** `--install` copies the executable to `%ProgramFiles%\MyAlien` (administrators-only
@@ -165,12 +168,27 @@ server cannot impersonate the caller), checks that `GetNamedPipeServerProcessId`
 running `MyAlien` service, then exchanges one message each way with timeouts. The check can be
 bypassed only with `MYALIEN_TRUST_ANY_SERVER=1`, for `--console` development runs.
 
-**CLI use.** `status` and `battery` call `obtainSnapshot()`: collect locally when elevated, else
-ask the service, else collect locally and show why the service was not used.
+**CLI use.** Reads (`status`, `battery`, `profile`, `gmode`, `fan`) call `obtainSnapshot()`:
+collect locally when elevated, else ask the service, else collect locally and show why the service
+was not used. Writes go to the service first, even when elevated, so the service knows about every
+change made through MyAlien; without the service they run in-process when elevated.
 
-**Power events** (suspend, resume, AC/DC, power-setting changes) are received and logged; acting
-on them (re-apply after resume, AC/DC rules) is the next increment, together with write requests
-and the MyDell coexistence policy.
+**Thermal monitor** (`monitor.h/.cpp`, PLAN.md §5). A thread with its own WMI connection:
+
+* **Remembers** the setting made through MyAlien: after each successful `PROFILE` / `GMODE` / `FAN`
+  request, the pipe thread reads the resulting profile and fan boosts from the firmware and records
+  them in `<install dir>\state.ini` (administrators-only location). Boosts only count in Custom.
+* **Watches** the firmware every 15 s (3 cheap AWCC calls). A change it did not record is an
+  external change (MyDell, firmware, another tool): it is logged, and if it departs from the
+  MyAlien setting that setting is marked *overridden*.
+* **Re-applies** at start-up and 5 s after resume, if the firmware no longer reports the MyAlien
+  setting, the setting is not overridden, MyDell's `FusionService` is not running (MyDell owns
+  persistence when present) and the machine is the G15 5520. At most once per start-up / resume,
+  with the result logged: no write loops.
+* An override is cleared by the next change made through MyAlien.
+
+**Power events** (suspend, resume, AC/DC, power-setting changes) are logged; resume wakes the
+charge refresher and the thermal monitor. AC/DC rules are not implemented.
 
 ## Safety model, summarised
 

@@ -25,8 +25,9 @@ void printBatterySection(const Snapshot& s);
 // Requires COM initialised on the calling thread.
 std::pair<Snapshot, std::string> obtainSnapshot(const SnapshotParts& parts, bool freshCharge = false);
 
-// Performs a write: in-process when elevated (`local`), otherwise by sending `request` to the
-// MyAlien service. Prints the action's output (and where it ran) and returns its exit code.
+// Performs a write by sending `request` to the MyAlien service; without the service, runs it
+// in-process (`local`) when elevated. Prints the action's output (and where it ran) and returns
+// its exit code.
 // Requires COM initialised on the calling thread.
 int runWrite(std::string_view what, const std::string& request, const std::function<ActionOutput()>& local,
              DWORD timeoutMs = 15000);

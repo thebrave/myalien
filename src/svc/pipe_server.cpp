@@ -4,6 +4,7 @@
 #include "svc/pipe_server.h"
 
 #include "core/actions.h"
+#include "core/awcc.h"
 #include "core/error.h"
 #include "core/ipc.h"
 #include "core/snapshot.h"
@@ -123,6 +124,16 @@ std::optional<std::string> handleWrite(const std::vector<std::string>& t, Servic
     else if (t[0] == "CHARGE" && t.size() == 2) out = ctx.charge.write(t[1], std::nullopt).output;
     else if (t[0] == "CHARGE" && t.size() == 4) out = ctx.charge.write(t[1], std::make_pair(t[2], t[3])).output;
     else return std::nullopt;
+
+    // A successful thermal change becomes the setting the monitor keeps (and may re-apply).
+    if (out.exitCode == exitcode::Ok && t[0] != "CHARGE") {
+        try {
+            Awcc awcc;
+            ctx.monitor.recordWrite(readThermalState(awcc));
+        } catch (const std::exception& e) {
+            logf("monitor: could not record the new setting: {}", e.what());
+        }
+    }
     return encodeOutput(out);
 }
 

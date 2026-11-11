@@ -34,14 +34,15 @@ void printOutput(const ActionOutput& o) {
 
 int runWrite(std::string_view what, const std::string& request, const std::function<ActionOutput()>& local,
              DWORD timeoutMs) {
-    if (isElevated()) {
-        const ActionOutput o = local();
-        printOutput(o);
-        return o.exitCode;
-    }
-
+    // The service is preferred even when elevated: it records thermal changes as the setting to
+    // keep, and would otherwise see an in-process change as an external one.
     const auto r = ipc::call(request, timeoutMs);
     if (!r.response) {
+        if (isElevated()) {
+            const ActionOutput o = local();
+            printOutput(o);
+            return o.exitCode;
+        }
         std::fprintf(stderr, "%.*s needs the MyAlien service or an elevated prompt (%s).\n",
                      static_cast<int>(what.size()), what.data(), toString(r.error));
         return exitcode::Error;

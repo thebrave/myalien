@@ -1,5 +1,7 @@
 #include "svc/charge_cache.h"
 
+#include "svc/context.h"
+
 #include "core/error.h"
 #include "core/wmi.h"
 #include "svc/log.h"

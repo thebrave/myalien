@@ -222,6 +222,13 @@ from a normal prompt. Reads show `Source : MyAlien service`; changes start with
 `Via : MyAlien service`. Any logged-in user may change settings: the service applies the same
 validation as the elevated CLI and logs each change with the caller's account and process ID.
 
+The service also **remembers** the thermal profile and fan boosts last set through MyAlien
+(`C:\Program Files\MyAlien\state.ini`) and checks the firmware every 15 s. When MyDell's
+`FusionService` is not running, it re-applies that setting after boot or resume if the firmware lost
+it. If anything else changes the setting (MyDell, the firmware, another tool), the service logs it
+and stops re-applying until your next change through `myalien`. With MyDell running it only
+observes. Writes are sent to the service even from an elevated prompt, so it knows about them.
+
 Reading the BIOS charge settings takes ~5 s, so the service keeps them in memory (refreshed at
 start-up, after resume, every 10 minutes). `status` shows how old they are
 (`Settings read : … ago by the service`) and answers in ~0.3 s; `battery` asks the service to

@@ -42,12 +42,7 @@ private:
     ULONGLONG readTick_ = 0;
 };
 
-// Shared between the SCM/console front-end, the refresher thread and the pipe server.
-struct ServiceContext {
-    HANDLE stopEvent = nullptr;
-    HANDLE refreshEvent = nullptr;  // auto-reset: wake the refresher (resume, ...)
-    ChargeCache charge;
-};
+struct ServiceContext;
 
 // Refresher thread body: refreshes at start, then on refreshEvent or every interval, until stop.
 void runChargeRefresher(ServiceContext& ctx);
