@@ -287,7 +287,8 @@ and the first time game mode acts after it was turned on, not on every alt-tab.
 The “Now:” line shows `No game in focus`, the focused game with the values it will restore, or a
 warning (FusionService running, a failed switch).
 
-**“Games…” dialog**: one ListView (report view, checkboxes) with Name, Launcher, Folder.
+**“Games…” window** (built as designed; the footer also shows the scan time, and hovering a row
+shows the full name and path): one ListView (report view, checkboxes) with Name, Launcher, Folder.
 Unticking a row excludes that folder (browsers that end up in `GameConfigStore`); exclusions are
 stored by path and survive a rescan. Buttons: Add folder… (games no catalog finds: HoYoPlay, itch,
 Amazon, loose installs), Remove (manual folders only), Rescan, and a filter box. A footer counts
@@ -296,6 +297,13 @@ games per source. The catalog is scanned at tray start and on Rescan.
 **CLI**: `myalien games` prints the catalog and whether the current foreground process matches;
 `myalien powermode [set <mode>]` reads or sets the Windows power mode directly. Both run as the
 user and never use the service.
+
+### Status (2026-11-11)
+
+Increments 1–3 are built and used on the author's G15 5520: catalog and `myalien games`, switching
+in the tray, the Games group and the Games window. The status window's group is laid out as in
+the mockup above, with *Leave unchanged* in both lists. Open: a final round of in-use checks of the
+Games window, and whether an added folder should count each subfolder as its own game.
 
 ### Implementation notes (increment 2)
 
