@@ -62,6 +62,7 @@ private:
     bool boostDirty_ = false;   // user moved a boost slider since the last Apply
     bool rangeDirty_ = false;   // user edited the custom range since the last Apply
     std::vector<uint8_t> profileItems_;      // combo index -> profile id
+    bool profileListStuck_ = false;          // G-Mode item currently labelled "(stuck)"
     std::vector<std::string> chargeItems_;   // combo index -> BIOS charge mode
 };
 

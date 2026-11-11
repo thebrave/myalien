@@ -16,7 +16,7 @@ namespace {
 
 constexpr wchar_t kClassName[] = L"MyAlienStatusWindow";
 constexpr int kClientW = 420;
-constexpr int kClientH = 492;
+constexpr int kClientH = 474;
 constexpr DWORD kChargeTimeoutMs = 40000;
 
 enum Id : int {
@@ -101,7 +101,7 @@ constexpr ControlDef kControls[] = {
     {IDC_PCT, WC_STATICW, L"%", kStatic, 242, 362, 20, 20},
     {IDC_APPLY_RANGE, WC_BUTTONW, L"Use range", kButton, 290, 356, 110, 26},
     {IDC_CHARGE_AGE, WC_STATICW, L"", kStaticEllipsis, 24, 400, 376, 20},
-    {IDC_STATUS, WC_STATICW, L"", kStatic, 12, 450, 396, 36},
+    {IDC_STATUS, WC_STATICW, L"", kStaticEllipsis, 12, 448, 396, 20},
 };
 
 std::string lower(std::string s) {
@@ -223,18 +223,25 @@ void StatusWindow::refreshControls() {
     const bool stuck = thermal && gameShiftStuck(s.profile, s.gameShift);
     const bool gmode = thermal && s.profile == profile::GMode;
 
+    // Firmware profiles, Custom, and G-Mode (shown "G-Mode (stuck)" while Game Shift is stuck).
     std::vector<uint8_t> profiles = s.profiles;
     profiles.push_back(profile::Custom);
+    if (s.gameShiftSupported) profiles.push_back(profile::GMode);
     HWND combo = item(IDC_PROFILE);
-    if (profiles != profileItems_) {
+    if (profiles != profileItems_ || stuck != profileListStuck_) {
         SendMessageW(combo, CB_RESETCONTENT, 0, 0);
-        for (uint8_t p : profiles) SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(toWide(profileName(p)).c_str()));
+        for (uint8_t p : profiles) {
+            const std::wstring label = p == profile::GMode && stuck ? L"G-Mode (stuck)" : toWide(profileName(p));
+            SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+        }
         profileItems_ = profiles;
+        profileListStuck_ = stuck;
     }
+    const uint8_t shown = stuck ? profile::GMode : s.profile;  // fans behave as in G-Mode
     int sel = -1;
-    if (thermal && !gmode && !stuck)
+    if (thermal)
         for (size_t i = 0; i < profileItems_.size(); ++i)
-            if (profileItems_[i] == s.profile) sel = static_cast<int>(i);
+            if (profileItems_[i] == shown) sel = static_cast<int>(i);
     if (SendMessageW(combo, CB_GETCURSEL, 0, 0) != sel && !SendMessageW(combo, CB_GETDROPPEDSTATE, 0, 0))
         SendMessageW(combo, CB_SETCURSEL, static_cast<WPARAM>(sel), 0);
 
@@ -268,6 +275,7 @@ void StatusWindow::refreshControls() {
     std::wstring note;
     if (!thermal) note = L"Thermal data unavailable: " + toWide(s.thermalError.message);
     else if (stuck) note = L"Game Shift is stuck on: fans at full boost. Untick G-Mode to fix it.";
+    else if (gmode) note = L"G-Mode: the firmware runs both fans at full boost.";
     else if (!custom) note = L"Fan boost can be changed in the Custom profile.";
     SetWindowTextW(item(IDC_NOTE), note.c_str());
 
@@ -333,7 +341,13 @@ void StatusWindow::onCommand(int id, int code) {
         const auto i = SendMessageW(item(IDC_PROFILE), CB_GETCURSEL, 0, 0);
         if (i < 0 || static_cast<size_t>(i) >= profileItems_.size()) return;
         const uint8_t p = profileItems_[static_cast<size_t>(i)];
-        if (p == s.profile && !gameShiftStuck(s.profile, s.gameShift)) return;
+        const bool stuck = gameShiftStuck(s.profile, s.gameShift);
+        if (p == profile::GMode) {
+            if (s.profile == profile::GMode || stuck) return;  // already (or effectively) in G-Mode
+            write_("GMODE ON", "G-Mode on", 15000);
+            return;
+        }
+        if (p == s.profile && !stuck) return;
         const Request r = profileRequest(s, p);
         write_(r.text, r.what, 15000);
     } else if (id == IDC_GMODE && code == BN_CLICKED) {
