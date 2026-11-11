@@ -63,7 +63,10 @@ void printThermal(const Snapshot& s) {
     for (uint8_t p : s.profiles) avail += std::format("{}{} (0x{:02X})", avail.empty() ? "" : ", ", profileName(p), p);
     field("Available", avail.empty() ? "none" : avail);
 
-    if (s.gameShiftSupported)
+    if (s.gameShiftSupported && gameShiftStuck(s.profile, s.gameShift))
+        field("G-Mode", "STUCK: Game Shift is on with a regular profile, fans at full boost. "
+                        "Fix: `myalien gmode off <profile>`");
+    else if (s.gameShiftSupported)
         field("G-Mode", std::format("{}   (Game Shift: {})", s.profile == profile::GMode ? "on" : "off",
                                     s.gameShift ? (*s.gameShift ? "on" : "off") : "n/a"));
     else

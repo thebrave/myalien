@@ -78,6 +78,11 @@ This is the "USTT" profile family; the legacy `0x96–0x99` codes are not used b
   both when G-Mode is left.
 * The Linux G-series sequence (toggle Game Shift with `GameShiftStatus` op `0x01`, then activate
   `0xAB`) did **not** work here: the toggle left the status at 0. MyAlien never sends it.
+* **Game Shift can get stuck** (2026-11-11): with G-Mode entered by MyAlien (`0xAB`), selecting Quiet
+  in MyDell left the profile at `0xA3` but **Game Shift on and boost 100 on both fans** (fans at
+  ~4800 rpm). Selecting a profile does not clear it; leaving G-Mode does (activate `0xAB`, then the
+  profile). MyAlien detects this state ("G-Mode stuck"), `gmode off` / `profile set` repair it that
+  way, and the monitor treats Game Shift as part of the setting.
 * Reported by tcc-g15 users: a short system freeze when switching, and G-Mode kept for about a
   minute while hot.
 

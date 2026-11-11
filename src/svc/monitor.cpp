@@ -11,11 +11,13 @@ namespace myalien::svc {
 namespace {
 
 // Applies `wanted` with the same firmware calls the actions use (validated by Awcc).
-void reapply(Awcc& awcc, const ThermalState& wanted) {
+void reapply(Awcc& awcc, const ThermalState& wanted, const ThermalState& seen) {
     if (wanted.profile == profile::GMode) {
         awcc.setGMode(true);
         return;
     }
+    // A stuck Game Shift is cleared by leaving G-Mode, not by selecting a profile.
+    if (gameShiftStuck(seen.profile, seen.gameShift)) awcc.setGMode(true);
     awcc.setProfile(wanted.profile);  // also leaves G-Mode
     if (wanted.profile == profile::Custom)
         for (const auto& [fan, boost] : wanted.boosts) awcc.setFanBoost(fan, static_cast<uint8_t>(boost));
@@ -69,7 +71,7 @@ void Monitor::observe(Awcc& awcc, const char* reason, bool mayReapply) {
     if (!machineInfo().isG15_5520()) return;
 
     try {
-        reapply(awcc, *desired_.thermal);
+        reapply(awcc, *desired_.thermal, seen);
         const ThermalState after = readThermalState(awcc);
         lastSeen_ = after;
         logf("monitor: re-applied {} -> firmware reports {}{}", wanted, describe(after),

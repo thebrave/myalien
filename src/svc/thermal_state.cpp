@@ -14,6 +14,7 @@ ThermalState readThermalState(Awcc& awcc) {
     s.profile = awcc.currentProfile();
     for (const auto& f : awcc.caps().fans)
         if (const auto b = awcc.fan(f.id).boost) s.boosts[f.id] = *b;
+    s.gameShift = awcc.gameShift();
     return s;
 }
 
@@ -23,11 +24,12 @@ std::string describe(const ThermalState& s) {
         r += ", boost";
         for (const auto& [id, b] : s.boosts) r += std::format(" {} {}", fanName(id), b);
     }
+    if (s.profile != profile::GMode && s.gameShiftOn()) r += ", Game Shift stuck on";
     return r;
 }
 
 bool sameSetting(const ThermalState& a, const ThermalState& b) {
-    if (a.profile != b.profile) return false;
+    if (a.profile != b.profile || a.gameShiftOn() != b.gameShiftOn()) return false;
     return a.profile != profile::Custom || a.boosts == b.boosts;
 }
 

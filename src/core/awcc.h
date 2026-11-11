@@ -48,6 +48,12 @@ const char* sensorName(uint8_t id);
 // Firmware's own G-Mode value; never exceeded (the Linux driver allows up to 255).
 inline constexpr uint8_t kMaxFanBoost = 100;
 
+// Game Shift left on with a regular profile: the firmware keeps G-Mode's full fan boost.
+// Seen on the G15 5520 when MyDell selected Quiet while MyAlien had G-Mode on (2026-11-11).
+constexpr bool gameShiftStuck(uint8_t currentProfile, std::optional<bool> gameShift) noexcept {
+    return currentProfile != profile::GMode && gameShift.value_or(false);
+}
+
 constexpr bool isAwccError(uint32_t v) noexcept { return v == 0xFFFFFFFFu || v == 0xFFFFFFFEu; }
 
 struct AwccFan {

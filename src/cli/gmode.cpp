@@ -36,8 +36,11 @@ int show() {
         std::puts("G-Mode  : not supported on this machine");
         return exitcode::Ok;
     }
-    std::printf("Current : G-Mode %s, profile %s, Game Shift %s\n", s.profile == profile::GMode ? "on" : "off",
+    const bool stuck = gameShiftStuck(s.profile, s.gameShift);
+    std::printf("Current : G-Mode %s, profile %s, Game Shift %s\n",
+                s.profile == profile::GMode ? "on" : stuck ? "STUCK (fans at full boost)" : "off",
                 describeProfile(s.profile).c_str(), s.gameShift ? (*s.gameShift ? "on" : "off") : "n/a");
+    if (stuck) std::puts("Fix     : myalien gmode off <profile>");
     return exitcode::Ok;
 }
 

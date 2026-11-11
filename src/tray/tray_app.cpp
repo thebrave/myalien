@@ -184,8 +184,10 @@ void TrayApp::updateIcon() {
     } else if (snapshot_->thermalError) {
         tip = L"MyAlien: thermal data unavailable";
     } else {
-        profile = snapshot_->profile;
-        tip = L"MyAlien · " + toWide(profileName(snapshot_->profile)) + L"\n" + tempLine(*snapshot_);
+        const bool stuck = gameShiftStuck(snapshot_->profile, snapshot_->gameShift);
+        profile = stuck ? profile::GMode : snapshot_->profile;  // fans behave as in G-Mode: show the G badge
+        tip = L"MyAlien · " + toWide(profileName(snapshot_->profile)) +
+              (stuck ? L" · G-Mode stuck (fans at full boost)" : L"") + L"\n" + tempLine(*snapshot_);
     }
     if (tip.size() > 127) tip.resize(127);
 
@@ -243,7 +245,9 @@ void TrayApp::showMenu(POINT at) {
         if (s.thermalError) {
             AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, L"Thermal data unavailable");
         } else {
+            const bool stuck = gameShiftStuck(s.profile, s.gameShift);
             std::wstring head = toWide(profileName(s.profile));
+            if (stuck) head += L"  ·  Game Shift stuck on: fans at full boost";
             if (busy) head += L"  (applying…)";
             AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, head.c_str());
             const std::wstring temps = tempLine(s);
@@ -258,8 +262,8 @@ void TrayApp::showMenu(POINT at) {
                 if (p == s.profile) CheckMenuRadioItem(menu, ID_PROFILE_BASE + p, ID_PROFILE_BASE + p, ID_PROFILE_BASE + p, MF_BYCOMMAND);
             }
             if (s.gameShiftSupported)
-                AppendMenuW(menu, MF_STRING | enabled | (s.profile == profile::GMode ? MF_CHECKED : MF_UNCHECKED), ID_GMODE,
-                            L"G-Mode (maximum cooling)");
+                AppendMenuW(menu, MF_STRING | enabled | (s.profile == profile::GMode || stuck ? MF_CHECKED : MF_UNCHECKED),
+                            ID_GMODE, stuck ? L"G-Mode stuck: click to turn it off" : L"G-Mode (maximum cooling)");
         }
 
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
@@ -314,15 +318,18 @@ void TrayApp::onCommand(UINT id) {
     if (!snapshot_) return;
     const Snapshot& s = *snapshot_;
 
+    const bool stuck = gameShiftStuck(s.profile, s.gameShift);
     if (id == ID_GMODE) {
-        if (s.profile != profile::GMode) write("GMODE ON", "G-Mode on");
-        else if (lastRegularProfile_ == profile::Custom) write("PROFILE 0x00", "G-Mode off");  // Custom is not a GMODE OFF target
-        else write(std::format("GMODE OFF 0x{:02X}", lastRegularProfile_), "G-Mode off");
+        // Stuck: leave G-Mode towards the profile the firmware already shows.
+        const uint8_t back = stuck ? s.profile : lastRegularProfile_;
+        if (s.profile != profile::GMode && !stuck) write("GMODE ON", "G-Mode on");
+        else if (back == profile::Custom) write("PROFILE 0x00", "G-Mode off");  // Custom is not a GMODE OFF target
+        else write(std::format("GMODE OFF 0x{:02X}", back), "G-Mode off");
         return;
     }
     if (id >= ID_PROFILE_BASE && id <= ID_PROFILE_BASE + 0xFF) {
         const auto p = static_cast<uint8_t>(id - ID_PROFILE_BASE);
-        if (p == s.profile) return;
+        if (p == s.profile && !stuck) return;
         // Leaving G-Mode goes through GMODE OFF so the service records the right thing.
         if (s.profile == profile::GMode && p != profile::Custom)
             write(std::format("GMODE OFF 0x{:02X}", p), "Thermal profile: " + std::string(profileName(p)));

@@ -45,6 +45,16 @@ int main() {
         expect(!sameSetting(quiet, gmode), "different profiles");
         expect(describe(custom30) == "Custom (0x00), boost CPU 30 GPU 30", "describe Custom");
         expect(describe(quiet) == "Quiet (0xA3)", "describe Quiet");
+
+        // Game Shift: a remembered setting (gameShift unset) implies on for G-Mode, off otherwise.
+        const ThermalState quietStuck{profile::Quiet, {}, true};
+        const ThermalState quietClean{profile::Quiet, {}, false};
+        const ThermalState gmodeRead{profile::GMode, {}, true};
+        const ThermalState gmodeRemembered{profile::GMode, {}, std::nullopt};
+        expect(!sameSetting(quiet, quietStuck), "stuck Game Shift differs from the remembered Quiet");
+        expect(sameSetting(quiet, quietClean), "Game Shift off matches the remembered Quiet");
+        expect(sameSetting(gmodeRemembered, gmodeRead), "G-Mode implies Game Shift on");
+        expect(describe(quietStuck) == "Quiet (0xA3), Game Shift stuck on", "describe stuck");
     }
     {
         const std::wstring path = tempIni();

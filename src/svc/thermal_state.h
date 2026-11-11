@@ -15,16 +15,22 @@ namespace myalien::svc {
 struct ThermalState {
     uint8_t profile = 0;
     std::map<uint8_t, uint32_t> boosts;  // fan id -> boost
+    // As read from the firmware; not persisted (a remembered setting implies Game Shift on for
+    // G-Mode, off otherwise).
+    std::optional<bool> gameShift;
+
+    bool gameShiftOn() const { return gameShift.value_or(profile == profile::GMode); }
 };
 
-// Current profile and fan boosts as the firmware reports them.
+// Current profile, fan boosts and Game Shift as the firmware reports them.
 ThermalState readThermalState(Awcc& awcc);
 
-// "Quiet (0xA3)" or "Custom (0x00), boost CPU 30 GPU 30".
+// "Quiet (0xA3)", "Custom (0x00), boost CPU 30 GPU 30", "Quiet (0xA3), Game Shift stuck on".
 std::string describe(const ThermalState& s);
 
-// Same user-visible setting: same profile, and in Custom the same boosts (in other profiles the
-// firmware manages the fans, e.g. G-Mode sets boost 100 by itself).
+// Same user-visible setting: same profile, same Game Shift state (a stuck Game Shift keeps the
+// fans at full boost), and in Custom the same boosts (in other profiles the firmware manages the
+// fans, e.g. G-Mode sets boost 100 by itself).
 bool sameSetting(const ThermalState& a, const ThermalState& b);
 
 struct DesiredState {

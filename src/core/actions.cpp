@@ -68,8 +68,8 @@ void noteMyDell(ActionOutput& o) {
 std::string gmodeState(Awcc& awcc) {
     const uint8_t p = awcc.currentProfile();
     const auto gs = awcc.gameShift();
-    return std::format("G-Mode {}, profile {}, Game Shift {}", p == profile::GMode ? "on" : "off", describeProfile(p),
-                       gs ? (*gs ? "on" : "off") : "n/a");
+    const char* state = p == profile::GMode ? "on" : gameShiftStuck(p, gs) ? "STUCK (fans at full boost)" : "off";
+    return std::format("G-Mode {}, profile {}, Game Shift {}", state, describeProfile(p), gs ? (*gs ? "on" : "off") : "n/a");
 }
 
 }  // namespace
@@ -140,12 +140,18 @@ ActionOutput actSetProfile(std::string_view profileName) {
     const uint8_t before = awcc.currentProfile();
     if (before == profile::GMode) return o.fail(exitcode::Error, "G-Mode is on. Use `myalien gmode off <profile>` to leave it.");
 
-    o.out(std::format("Before  : {}", describeProfile(before)));
-    if (before == *target) {
+    const bool stuck = gameShiftStuck(before, awcc.gameShift());
+    o.out(std::format("Before  : {}{}", describeProfile(before), stuck ? ", Game Shift stuck on (fans at full boost)" : ""));
+    if (before == *target && !stuck) {
         o.out("Already active, nothing to do.");
         return o;
     }
     try {
+        // A stuck Game Shift is cleared by leaving G-Mode, not by selecting a profile (see actSetGMode).
+        if (stuck) {
+            o.out("Note    : entering G-Mode first so leaving it clears Game Shift.");
+            awcc.setGMode(true);
+        }
         awcc.setProfile(*target);
     } catch (const std::invalid_argument& e) {
         return o.fail(exitcode::Usage, e.what());
@@ -153,10 +159,13 @@ ActionOutput actSetProfile(std::string_view profileName) {
 
     // The firmware, not our write, is the source of truth.
     const uint8_t after = awcc.currentProfile();
-    o.out(std::format("After   : {}", describeProfile(after)));
+    const bool stillStuck = gameShiftStuck(after, awcc.gameShift());
+    o.out(std::format("After   : {}{}", describeProfile(after), stillStuck ? ", Game Shift still on" : ""));
     noteMyDell(o);
     if (after != *target)
         return o.fail(exitcode::NotApplied, std::format("Profile did not change as requested (firmware reports 0x{:02X}).", after));
+    if (stillStuck)
+        return o.fail(exitcode::NotApplied, "Game Shift is still on: the fans stay at full boost. Try `myalien gmode off <profile>`.");
     o.out("OK");
     return o;
 }
@@ -172,17 +181,26 @@ ActionOutput actSetGMode(bool on, std::string_view profileWhenOff) {
 
     o.out(std::format("Before  : {}", gmodeState(awcc)));
     const uint8_t wanted = on ? profile::GMode : *offProfile;
-    if (awcc.currentProfile() == wanted) {
+    const uint8_t before = awcc.currentProfile();
+    const bool stuck = gameShiftStuck(before, awcc.gameShift());
+    if (before == wanted && !stuck) {
         o.out("Already in that state, nothing to do.");
         return o;
     }
     try {
+        // Leaving a stuck Game Shift: selecting a profile alone does not clear it, but leaving
+        // G-Mode does (verified on the G15 5520), so enter G-Mode first.
+        if (!on && stuck) {
+            o.out("Note    : Game Shift is on outside G-Mode; entering G-Mode first so leaving it clears Game Shift.");
+            awcc.setGMode(true);
+        }
         awcc.setGMode(on, on ? profile::Balanced : *offProfile);
     } catch (const std::invalid_argument& e) {
         return o.fail(exitcode::Usage, e.what());
     }
 
     const uint8_t after = awcc.currentProfile();
+    const bool stillStuck = gameShiftStuck(after, awcc.gameShift());
     o.out(std::format("After   : {}", gmodeState(awcc)));
     noteMyDell(o);
     if (after != wanted)
@@ -190,6 +208,9 @@ ActionOutput actSetGMode(bool on, std::string_view profileWhenOff) {
                       on ? "Firmware did not report G-Mode after the request."
                          : "Firmware still reports another profile. If the machine is hot, the firmware may keep G-Mode "
                            "for about a minute; check `myalien gmode` again shortly.");
+    if (stillStuck)
+        return o.fail(exitcode::NotApplied,
+                      "Game Shift is still on: the fans stay at full boost. Try again shortly, or toggle G-Mode in MyDell.");
     o.out("OK");
     return o;
 }
