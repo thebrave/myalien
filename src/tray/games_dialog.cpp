@@ -110,7 +110,7 @@ void GamesDialog::create(HWND owner) {
 
     HWND list = item(IDC_LIST);
     ListView_SetExtendedListViewStyle(list, LVS_EX_CHECKBOXES | LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_INFOTIP);
-    const std::pair<const wchar_t*, int> columns[] = {{L"Name", 190}, {L"Source", 116}, {L"Folder or program", 290}};
+    const std::pair<const wchar_t*, int> columns[] = {{L"Name", 210}, {L"Source", 104}, {L"Folder or program", 290}};
     for (int i = 0; i < 3; ++i) {
         LVCOLUMNW col{};
         col.mask = LVCF_TEXT | LVCF_WIDTH;
@@ -204,7 +204,12 @@ void GamesDialog::fill() {
         ListView_SetCheckState(list, n, rows_[i].included);
         ++n;
     }
-    ListView_SetColumnWidth(list, 2, LVSCW_AUTOSIZE_USEHEADER);  // last column takes the remaining width
+    // Last column: exactly the width left (after the vertical scroll bar, if any), so a long path
+    // is cut with "…" (full text on hover) instead of adding a horizontal scroll bar.
+    RECT rc{};
+    GetClientRect(list, &rc);
+    const int rest = rc.right - ListView_GetColumnWidth(list, 0) - ListView_GetColumnWidth(list, 1);
+    if (rest > scale(80)) ListView_SetColumnWidth(list, 2, rest);
     SendMessageW(list, WM_SETREDRAW, TRUE, 0);
     SetWindowTextW(item(IDC_FOOTER), footer_.c_str());
     filling_ = false;
