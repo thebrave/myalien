@@ -137,7 +137,21 @@ void GamesDialog::layout() {
     AdjustWindowRectExForDpi(&r, static_cast<DWORD>(GetWindowLongPtrW(hwnd_, GWL_STYLE)), FALSE, 0, dpi_);
     SetWindowPos(hwnd_, nullptr, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
     for (const auto& c : kControls) MoveWindow(item(c.id), scale(c.x), scale(c.y), scale(c.w), scale(c.h), FALSE);
+    sizeColumns();
     InvalidateRect(hwnd_, nullptr, TRUE);
+}
+
+// Column widths follow the window's DPI (it can move to a monitor with another scale). The last
+// column gets exactly the width left (after the vertical scroll bar, if any), so a long path is
+// cut with "…" (full text on hover) instead of adding a horizontal scroll bar.
+void GamesDialog::sizeColumns() {
+    HWND list = item(IDC_LIST);
+    ListView_SetColumnWidth(list, 0, scale(210));
+    ListView_SetColumnWidth(list, 1, scale(104));
+    RECT rc{};
+    GetClientRect(list, &rc);
+    const int rest = rc.right - scale(210) - scale(104);
+    ListView_SetColumnWidth(list, 2, std::max(rest, scale(80)));
 }
 
 void GamesDialog::update(const games::Catalog* cat, const GameSettings& settings) {
@@ -204,12 +218,7 @@ void GamesDialog::fill() {
         ListView_SetCheckState(list, n, rows_[i].included);
         ++n;
     }
-    // Last column: exactly the width left (after the vertical scroll bar, if any), so a long path
-    // is cut with "…" (full text on hover) instead of adding a horizontal scroll bar.
-    RECT rc{};
-    GetClientRect(list, &rc);
-    const int rest = rc.right - ListView_GetColumnWidth(list, 0) - ListView_GetColumnWidth(list, 1);
-    if (rest > scale(80)) ListView_SetColumnWidth(list, 2, rest);
+    sizeColumns();  // the vertical scroll bar may have appeared or gone
     SendMessageW(list, WM_SETREDRAW, TRUE, 0);
     SetWindowTextW(item(IDC_FOOTER), footer_.c_str());
     filling_ = false;

@@ -47,6 +47,7 @@ private:
     LRESULT handle(UINT msg, WPARAM wp, LPARAM lp);
     void create(HWND owner);
     void layout();
+    void sizeColumns();
     void applyFont();
     void fill();         // rows_ -> list view, honouring the filter
     void updateButtons();
