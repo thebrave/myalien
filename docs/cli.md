@@ -314,7 +314,7 @@ Start `myalien-tray.exe` as yourself (not elevated); it needs the MyAlien servic
     *Use range* (switches to Custom with that range), and how old the charge settings are.
   * The bottom line shows the result of the last change. Closing the window only hides it.
 * **Right click** opens the **menu**: profile (radio items), G-Mode on/off, battery level and health,
-  **Charging** submenu, **Game mode** (and, while a game has engaged it, a `Game: <name> → …` line),
+  **Charging** submenu, **Game mode: switch automatically while a game is in front** (and, while a game has engaged it, a `Game: <name> → …` line),
   *Open MyAlien…*, **Start with Windows**, Refresh, Exit.
 * **Game mode** (off by default, [game-mode.md](game-mode.md)): while a game from the catalog
   (`myalien games`) is in the foreground, the tray sets the thermal profile (through the service)

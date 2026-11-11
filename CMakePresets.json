@@ -11,6 +11,6 @@
   ],
   "buildPresets": [
     { "name": "debug", "configurePreset": "vs2022", "configuration": "Debug" },
-    { "name": "release", "configurePreset": "vs2022", "configuration": "Release" }
+    { "name": "release", "configurePreset": "vs2022", "configuration": "MinSizeRel" }
   ]
 }

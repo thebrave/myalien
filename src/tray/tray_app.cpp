@@ -362,7 +362,8 @@ void TrayApp::showMenu(POINT at) {
         const std::wstring line = L"Game: " + activeGameName_ + L" → " + gameTargetsText();
         AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, line.c_str());
     }
-    AppendMenuW(menu, MF_STRING | (gameSettings_.enabled ? MF_CHECKED : MF_UNCHECKED), ID_GAMEMODE, L"Game mode");
+    AppendMenuW(menu, MF_STRING | (gameSettings_.enabled ? MF_CHECKED : MF_UNCHECKED), ID_GAMEMODE,
+                L"Game mode: switch automatically while a game is in front");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, ID_OPEN, L"Open MyAlien…");
     SetMenuDefaultItem(menu, ID_OPEN, FALSE);
