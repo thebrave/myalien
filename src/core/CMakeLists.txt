@@ -1,4 +1,5 @@
 add_library(myalien-core STATIC
+    actions.cpp
     error.cpp
     wmi.cpp
     awcc.cpp

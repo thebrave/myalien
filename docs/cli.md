@@ -12,10 +12,11 @@ Running `myalien` with no command is the same as `myalien status`.
 
 ## Privileges and safety rules
 
-* **Dell firmware access needs an elevated prompt** (Run as administrator) — or, for `status`
-  and `battery`, the MyAlien service (see below). Without either, the Dell sections show
-  `unavailable (access denied …)`. Write commands always need elevation for now. Battery health,
-  power source and Windows power mode work without elevation.
+* **Dell firmware access needs the MyAlien service or an elevated prompt.** From an elevated
+  prompt, commands run in-process. From a normal prompt, reads and changes go through the service
+  (see the end of this page); any logged-in user may change settings, with the same checks.
+  Without either, the Dell sections show `unavailable (access denied …)` and changes are refused.
+  Battery health, power source and Windows power mode always work.
 * **Where `status` / `battery` data comes from** is shown on the `Source` line:
   `local (elevated)`, `MyAlien service` (not elevated, service running), or
   `local (not elevated; <reason>)`.
@@ -78,7 +79,7 @@ A `note:` line appears if it ever disagrees with the profile.
 
 ```
 myalien profile                  Show current and offered thermal profiles
-myalien profile set <profile>    Activate a profile (elevated)
+myalien profile set <profile>    Activate a profile
 ```
 
 `<profile>` is one of the names below, or a hex ID such as `0xA0`. Only profiles the firmware
@@ -108,7 +109,7 @@ OK
 
 ```
 myalien gmode                    Show G-Mode state
-myalien gmode on                 Turn G-Mode on (elevated)
+myalien gmode on                 Turn G-Mode on
 myalien gmode off [<profile>]    Turn G-Mode off and activate <profile> (default: balanced)
 ```
 
@@ -134,7 +135,7 @@ with code 3, wait and run `myalien gmode` again.
 
 ```
 myalien fan                          Show fan speed, boost and linked temperature
-myalien fan boost <fan> <0-100>      Set a fan's boost (elevated, Custom profile only)
+myalien fan boost <fan> <0-100>      Set a fan's boost (Custom profile only)
 ```
 
 `<fan>` is `cpu`, `gpu` or `all`. Boost is a percentage of the fan's maximum speed (4800 rpm on
@@ -166,7 +167,7 @@ The fans take 3–4 s to react, so the command samples their speed for 8 s after
 
 ```
 myalien battery                              Show battery health and charge mode
-myalien battery mode <mode>                  Set the charge mode (elevated)
+myalien battery mode <mode>                  Set the charge mode
 myalien battery mode custom <start> <stop>   Charge only between start % and stop %
 ```
 
@@ -216,8 +217,10 @@ myalien-svc --console      Run the pipe server in the foreground (development, C
 ```
 
 The service (`MyAlien`, LocalSystem, automatic start, restarts on failure) lets non-elevated
-clients read the Dell data over `\\.\pipe\MyAlien`. In this first increment it is **read-only**:
-it answers `status` / `battery`, logs power events, and changes nothing.
+clients read and change the Dell settings over `\\.\pipe\MyAlien`, so every `myalien` command works
+from a normal prompt. Reads show `Source : MyAlien service`; changes start with
+`Via : MyAlien service`. Any logged-in user may change settings: the service applies the same
+validation as the elevated CLI and logs each change with the caller's account and process ID.
 
 Reading the BIOS charge settings takes ~5 s, so the service keeps them in memory (refreshed at
 start-up, after resume, every 10 minutes). `status` shows how old they are

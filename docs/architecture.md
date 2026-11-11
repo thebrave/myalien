@@ -34,6 +34,7 @@ myalien.exe (src/cli)  ──── \\.\pipe\MyAlien ────  myalien-svc.e
 | `charge.h/.cpp` | Battery charge settings: `readChargeSettings()` and the pure planner `planChargeChange()` |
 | `battery.h/.cpp` | Battery health and live status through the Windows battery class driver (`IOCTL_BATTERY_QUERY_*`), no elevation needed |
 | `system.h/.cpp` | Machine identity (registry), elevation, `FusionService` state (SCM), Windows power mode (effective overlay scheme), AC/DC |
+| `actions.h/.cpp` | Write operations shared by the elevated CLI and the service: `actSetProfile`, `actSetGMode`, `actSetFanBoost`, `actSetChargeMode` (validate, write, read back) returning output lines + exit code; profile names; pipe encoding of the output |
 | `snapshot.h/.cpp` | `Snapshot`: everything `status` shows, collected with per-section errors (`collectSnapshot`), and its `key=value` wire format (`encodeSnapshot` / `decodeSnapshot`) |
 | `ipc.h/.cpp` | Pipe client and protocol framing: `call(request)`, `OK` / `ERR` responses, server identity check |
 
@@ -109,7 +110,7 @@ Every write command follows the same pattern:
 
 The CLI holds no state between runs: the firmware is the source of truth.
 
-## Service — `src/svc` (Phase 2, first increment: read-only)
+## Service — `src/svc` (Phase 2)
 
 | File | Responsibility |
 |---|---|
@@ -139,6 +140,17 @@ directory. Automatic start; restart after 5 s on the first two failures.
 | `PING` | `service=MyAlien`, `version=…` |
 | `STATUS` | an encoded `Snapshot` (`v=1`, then `key=value` lines): live thermal + battery, cached charge settings with `ch.age` |
 | `STATUS FRESH` | same, after re-reading the charge settings (~5 s) |
+| `PROFILE <name>` | encoded action output: `exit=N`, then one `o:` / `e:` line per output line |
+| `GMODE ON` / `GMODE OFF <name>` | same |
+| `FAN <cpu\|gpu\|all> <0-100>` | same |
+| `CHARGE <mode> [<start> <stop>]` | same; the charge cache is updated from the values read back |
+
+**Writes.** Any interactive user may send them (pipe DACL; decided 2026-11-11). Requests are
+tokenised strictly (at most 5 tokens of at most 32 printable ASCII characters) and handed as text to
+the same `act*` functions the elevated CLI calls: they validate every value against what the
+firmware reports and refuse other machines. Each write is logged with the caller's
+`DOMAIN\user` and PID (read by impersonating the client at identification level). Charge writes
+hold the cache's refresh lock, so no background BIOS read interleaves with them.
 
 **Charge-settings cache** (`charge_cache.h/.cpp`). Reading Dell BIOS attributes costs ~1.5 s per
 attribute class on the G15 5520 (the provider reads every attribute from the BIOS), ~4.5 s for the

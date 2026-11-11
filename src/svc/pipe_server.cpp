@@ -3,6 +3,7 @@
 
 #include "svc/pipe_server.h"
 
+#include "core/actions.h"
 #include "core/error.h"
 #include "core/ipc.h"
 #include "core/snapshot.h"
@@ -12,6 +13,8 @@
 #include <sddl.h>
 
 #include <memory>
+#include <optional>
+#include <vector>
 #include <string>
 
 namespace myalien::svc {
@@ -41,13 +44,89 @@ std::string trim(std::string s) {
     return s.substr(i);
 }
 
-// Request dispatch. Read-only in this increment.
+// "DOMAIN\user (pid N)" of the connected client, for the audit log. The client connects with
+// SECURITY_IDENTIFICATION, enough to read its token while impersonating.
+std::string describeClient(HANDLE pipe) {
+    ULONG pid = 0;
+    GetNamedPipeClientProcessId(pipe, &pid);
+    std::string user = "?";
+    if (ImpersonateNamedPipeClient(pipe)) {
+        HANDLE token = nullptr;
+        if (OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &token)) {
+            BYTE buf[256];
+            DWORD len = 0;
+            if (GetTokenInformation(token, TokenUser, buf, sizeof(buf), &len)) {
+                wchar_t name[128], domain[128];
+                DWORD nameLen = 128, domainLen = 128;
+                SID_NAME_USE use;
+                if (LookupAccountSidW(nullptr, reinterpret_cast<TOKEN_USER*>(buf)->User.Sid, name, &nameLen, domain,
+                                      &domainLen, &use))
+                    user = toUtf8(domain) + "\\" + toUtf8(name);
+            }
+            CloseHandle(token);
+        }
+        RevertToSelf();
+    }
+    return std::format("{} (pid {})", user, pid);
+}
+
+// Splits a request into at most 5 space-separated tokens of at most 32 printable ASCII characters.
+std::optional<std::vector<std::string>> tokenize(const std::string& req) {
+    std::vector<std::string> t;
+    std::string cur;
+    for (char c : req) {
+        if (c == ' ') {
+            if (!cur.empty()) t.push_back(std::move(cur)), cur.clear();
+        } else if (c > ' ' && c < 0x7F && cur.size() < 32) {
+            cur += c;
+        } else {
+            return std::nullopt;
+        }
+    }
+    if (!cur.empty()) t.push_back(std::move(cur));
+    if (t.empty() || t.size() > 5) return std::nullopt;
+    return t;
+}
+
+// Write requests, available to any interactive user (pipe DACL). The actions validate every
+// value against what the firmware reports and refuse to write on anything but a G15 5520.
+//   PROFILE <name>                  e.g. PROFILE quiet, PROFILE 0xA3
+//   GMODE ON | GMODE OFF <name>
+//   FAN <cpu|gpu|all> <0-100>
+//   CHARGE <mode> [<start> <stop>]
+std::optional<std::string> handleWrite(const std::vector<std::string>& t, ServiceContext& ctx) {
+    ActionOutput out;
+    if (t[0] == "PROFILE" && t.size() == 2) out = actSetProfile(t[1]);
+    else if (t[0] == "GMODE" && t.size() == 2 && t[1] == "ON") out = actSetGMode(true);
+    else if (t[0] == "GMODE" && t.size() == 3 && t[1] == "OFF") out = actSetGMode(false, t[2]);
+    else if (t[0] == "FAN" && t.size() == 3) out = actSetFanBoost(t[1], t[2]);
+    else if (t[0] == "CHARGE" && t.size() == 2) out = ctx.charge.write(t[1], std::nullopt).output;
+    else if (t[0] == "CHARGE" && t.size() == 4) out = ctx.charge.write(t[1], std::make_pair(t[2], t[3])).output;
+    else return std::nullopt;
+    return encodeOutput(out);
+}
+
+// Request dispatch.
 //   PING          -> service name and version
 //   STATUS        -> snapshot: live thermal + battery, cached charge settings (with their age)
 //   STATUS FRESH  -> same, re-reading the charge settings first (several seconds)
-std::string handleRequest(const std::string& raw, ServiceContext& ctx) {
+//   write requests (see handleWrite) -> encoded ActionOutput (exit code + output lines)
+std::string handleRequest(const std::string& raw, ServiceContext& ctx, HANDLE pipe) {
     const std::string req = trim(raw);
     if (req == "PING") return ipc::makeOk(std::format("service=MyAlien\nversion={}\n", MYALIEN_VERSION));
+    if (req != "STATUS" && req != "STATUS FRESH") {
+        const auto tokens = tokenize(req);
+        if (!tokens) return ipc::makeError("malformed request");
+        const std::string who = describeClient(pipe);
+        const auto body = handleWrite(*tokens, ctx);
+        if (!body) {
+            logf("rejected request from {}: {}", who, req);
+            return ipc::makeError("unknown request");
+        }
+        // First line of the body is "exit=N".
+        logf("write from {}: {} -> {}", who, req, body->substr(0, body->find('\n')));
+        return ipc::makeOk(*body);
+    }
     if (req == "STATUS" || req == "STATUS FRESH") {
         if (req == "STATUS FRESH") ctx.charge.refresh();
         SnapshotTiming t;
@@ -111,7 +190,7 @@ bool serveClient(HANDLE pipe, HANDLE ioEvent, ServiceContext& ctx) {
 
     std::string response;
     try {
-        response = handleRequest(request, ctx);
+        response = handleRequest(request, ctx, pipe);
     } catch (const std::exception& e) {
         response = ipc::makeError(e.what());
     }

@@ -9,6 +9,7 @@
 //  * every kRefreshInterval,
 //  * on demand (STATUS FRESH), e.g. for `myalien battery`.
 
+#include "core/actions.h"
 #include "core/snapshot.h"
 
 #include <windows.h>
@@ -28,6 +29,10 @@ public:
     // Copies the cached settings (with their age) into s. Before the first refresh completes,
     // s gets a "not read yet" error for the charge section.
     void apply(Snapshot& s) const;
+
+    // Runs a charge-mode write with refreshes held off, then updates the cache from the values
+    // the action read back, so STATUS reflects the change at once.
+    ChargeActionResult write(std::string_view mode, std::optional<std::pair<std::string, std::string>> range);
 
 private:
     std::mutex refreshMutex_;     // one BIOS read at a time

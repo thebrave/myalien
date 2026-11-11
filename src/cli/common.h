@@ -1,16 +1,15 @@
 #pragma once
 
-// Helpers shared by the CLI commands that read or change the thermal state.
+// Helpers shared by the CLI commands.
 
-#include "core/awcc.h"
-
-#include <cstdint>
-#include <optional>
-#include <string>
-#include <string_view>
-
+#include "core/actions.h"
 #include "core/snapshot.h"
 
+#include <windows.h>
+
+#include <functional>
+#include <string>
+#include <string_view>
 #include <utility>
 
 namespace myalien::cli {
@@ -26,24 +25,15 @@ void printBatterySection(const Snapshot& s);
 // Requires COM initialised on the calling thread.
 std::pair<Snapshot, std::string> obtainSnapshot(const SnapshotParts& parts, bool freshCharge = false);
 
-// "balanced", "quiet", ... or a hex ID such as "0xA0".
-std::optional<uint8_t> parseProfile(std::wstring_view arg);
+// Performs a write: in-process when elevated (`local`), otherwise by sending `request` to the
+// MyAlien service. Prints the action's output (and where it ran) and returns its exit code.
+// Requires COM initialised on the calling thread.
+int runWrite(std::string_view what, const std::string& request, const std::function<ActionOutput()>& local,
+             DWORD timeoutMs = 15000);
 
-// "Balanced (0xA0)  -> balanced"
-std::string describeProfile(uint8_t id);
+// Prints an action's output lines to stdout / stderr.
+void printOutput(const ActionOutput& o);
 
-// Current BIOS AWThermalManagement value, nullopt if unreadable.
-std::optional<std::wstring> readAwThermal();
-
-// Polls AWThermalManagement for up to ~2 s and prints it; flags a mismatch when the
-// expected mirror of `profile` is known.
-void printAwThermalAfterWrite(uint8_t profile);
-
-// Checks that a firmware write may proceed (G15 5520, elevated). Prints why not and
-// returns the exit code to use; nullopt when OK.
-std::optional<int> refuseWrite(const char* what);
-
-// Prints a note when Dell's FusionService (MyDell's backend) is running.
-void noteMyDell();
+std::string toAscii(std::wstring_view s);  // command-line argument -> pipe token (non-ASCII -> '?')
 
 }  // namespace myalien::cli

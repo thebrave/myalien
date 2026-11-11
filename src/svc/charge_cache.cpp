@@ -1,5 +1,6 @@
 #include "svc/charge_cache.h"
 
+#include "core/error.h"
 #include "core/wmi.h"
 #include "svc/log.h"
 
@@ -35,6 +36,21 @@ void ChargeCache::apply(Snapshot& s) const {
     }
     copyChargeSettings(data_, s);
     s.chargeAgeSeconds = static_cast<uint32_t>((GetTickCount64() - readTick_) / 1000);
+}
+
+ChargeActionResult ChargeCache::write(std::string_view mode, std::optional<std::pair<std::string, std::string>> range) {
+    std::lock_guard refreshLock(refreshMutex_);  // no refresh may interleave with the writes
+    ChargeActionResult r = actSetChargeMode(mode, std::move(range));
+    if (r.after) {
+        std::lock_guard lock(dataMutex_);
+        if (valid_ && !data_.chargeError) {
+            data_.chargeMode = toUtf8(r.after->mode);
+            data_.chargeStart = r.after->start;
+            data_.chargeStop = r.after->stop;
+            readTick_ = GetTickCount64();
+        }
+    }
+    return r;
 }
 
 void runChargeRefresher(ServiceContext& ctx) {

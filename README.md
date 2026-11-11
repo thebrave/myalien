@@ -8,8 +8,8 @@ the battery class driver, power APIs). No Dell DLLs, no direct hardware access. 
 without MyDell installed.
 
 Status: **Phase 1 done** — a command-line tool, every command verified on a G15 5520.
-Phase 2 in progress — a read-only Windows service lets `myalien status` work without elevation.
-Next: writes through the service, then a tray app (see [PLAN.md](PLAN.md)).
+Phase 2 in progress — with the Windows service installed, every command works without elevation.
+Next: MyDell coexistence and re-apply after resume, then a tray app (see [PLAN.md](PLAN.md)).
 
 ## What it can do
 
@@ -22,8 +22,8 @@ Next: writes through the service, then a tray app (see [PLAN.md](PLAN.md)).
 | `myalien battery mode <adaptive\|standard\|express\|primacuse>` | BIOS charge mode |
 | `myalien battery mode custom <start> <stop>` | Charge only between two levels, e.g. `50 80` |
 
-Changes need an **elevated prompt** and are only enabled on a Dell G15 5520. Each one is read back
-from the firmware before the command reports `OK`. Full reference: [docs/cli.md](docs/cli.md).
+Changes go through the MyAlien service (or need an **elevated prompt** without it) and are only
+enabled on a Dell G15 5520. Each one is read back from the firmware before the command reports `OK`. Full reference: [docs/cli.md](docs/cli.md).
 
 ## Build
 

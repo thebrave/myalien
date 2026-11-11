@@ -1,104 +1,13 @@
 #include "cli/common.h"
 
-#include "core/bios_attributes.h"
 #include "core/error.h"
 #include "core/ipc.h"
 #include "core/system.h"
 
-#include <windows.h>
-
-#include <algorithm>
 #include <cstdio>
-#include <cwctype>
 #include <format>
 
 namespace myalien::cli {
-
-namespace {
-
-struct ProfileAlias {
-    const wchar_t* name;
-    uint8_t id;
-};
-
-// CLI names for regular profiles. Only those the firmware offers are accepted by the core.
-constexpr ProfileAlias kAliases[] = {
-    {L"balanced", profile::Balanced},
-    {L"balanced-performance", profile::BalancedPerformance},
-    {L"quiet", profile::Quiet},
-    {L"low-power", profile::LowPower},
-    {L"cool", profile::Cool},
-    {L"performance", profile::Performance},
-    {L"custom", profile::Custom},
-};
-
-std::wstring lower(std::wstring_view s) {
-    std::wstring r(s);
-    std::transform(r.begin(), r.end(), r.begin(), [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
-    return r;
-}
-
-const wchar_t* aliasOf(uint8_t id) {
-    for (const auto& a : kAliases)
-        if (a.id == id) return a.name;
-    return nullptr;
-}
-
-}  // namespace
-
-std::optional<uint8_t> parseProfile(std::wstring_view arg) {
-    const std::wstring s = lower(arg);
-    for (const auto& a : kAliases)
-        if (s == a.name) return a.id;
-    if (s.size() == 4 && s.starts_with(L"0x")) {
-        wchar_t* end = nullptr;
-        const unsigned long v = std::wcstoul(s.c_str(), &end, 16);
-        if (end && *end == L'\0' && v <= 0xFF) return static_cast<uint8_t>(v);
-    }
-    return std::nullopt;
-}
-
-std::string describeProfile(uint8_t id) {
-    const wchar_t* alias = aliasOf(id);
-    return std::format("{} (0x{:02X}){}", profileName(id), id, alias ? "  -> " + toUtf8(alias) : std::string());
-}
-
-std::optional<std::wstring> readAwThermal() {
-    try {
-        BiosAttributes bios;
-        if (const auto a = bios.enumeration(attr::AWThermalManagement)) return a->current;
-    } catch (const std::exception&) {
-    }
-    return std::nullopt;
-}
-
-void printAwThermalAfterWrite(uint8_t profile) {
-    const wchar_t* expected = expectedAwThermalManagement(profile);
-    std::optional<std::wstring> aw;
-    for (int i = 0; i < 10; ++i) {
-        aw = readAwThermal();
-        if (!aw || !expected || *aw == expected) break;
-        Sleep(200);
-    }
-    if (!aw) return;
-    std::string suffix;
-    if (expected && *aw != expected) suffix = std::format("  (expected {})", toUtf8(expected));
-    std::printf("BIOS    : AWThermalManagement = %s%s\n", toUtf8(*aw).c_str(), suffix.c_str());
-}
-
-std::optional<int> refuseWrite(const char* what) {
-    const auto machine = machineInfo();
-    if (!machine.isG15_5520()) {
-        std::fprintf(stderr, "Refusing to write: this machine is %s %s, writes are only enabled on a Dell G15 5520.\n",
-                     toUtf8(machine.manufacturer).c_str(), toUtf8(machine.product).c_str());
-        return 1;
-    }
-    if (!isElevated()) {
-        std::fprintf(stderr, "%s requires an elevated prompt (Run as administrator).\n", what);
-        return 1;
-    }
-    return std::nullopt;
-}
 
 std::pair<Snapshot, std::string> obtainSnapshot(const SnapshotParts& parts, bool freshCharge) {
     if (isElevated()) return {collectSnapshot(parts), "local (elevated)"};
@@ -116,9 +25,46 @@ std::pair<Snapshot, std::string> obtainSnapshot(const SnapshotParts& parts, bool
     return {collectSnapshot(parts), std::format("local (not elevated; {})", why)};
 }
 
-void noteMyDell() {
-    if (fusionServiceState() == ServiceState::Running)
-        std::puts("Note    : MyDell or the FusionService is already running.");
+void printOutput(const ActionOutput& o) {
+    for (const auto& l : o.lines) {
+        std::fputs(l.text.c_str(), l.error ? stderr : stdout);
+        std::fputc('\n', l.error ? stderr : stdout);
+    }
+}
+
+int runWrite(std::string_view what, const std::string& request, const std::function<ActionOutput()>& local,
+             DWORD timeoutMs) {
+    if (isElevated()) {
+        const ActionOutput o = local();
+        printOutput(o);
+        return o.exitCode;
+    }
+
+    const auto r = ipc::call(request, timeoutMs);
+    if (!r.response) {
+        std::fprintf(stderr, "%.*s needs the MyAlien service or an elevated prompt (%s).\n",
+                     static_cast<int>(what.size()), what.data(), toString(r.error));
+        return exitcode::Error;
+    }
+    if (!r.response->ok) {
+        std::fprintf(stderr, "MyAlien service: %s\n", r.response->error.c_str());
+        return exitcode::Error;
+    }
+    try {
+        const ActionOutput o = decodeOutput(r.response->body);
+        std::puts("Via     : MyAlien service");
+        printOutput(o);
+        return o.exitCode;
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "MyAlien service: bad answer (%s)\n", e.what());
+        return exitcode::Error;
+    }
+}
+
+std::string toAscii(std::wstring_view s) {
+    std::string r;
+    for (wchar_t c : s) r += (c > L' ' && c < 0x7F) ? static_cast<char>(c) : '?';
+    return r;
 }
 
 }  // namespace myalien::cli
