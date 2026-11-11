@@ -517,11 +517,21 @@ void TrayApp::carryOut(const GameStep& step) {
 // sent synchronously (the worker is about to stop); if it fails, the record keeps that part.
 void TrayApp::restoreGameModeOnExit() {
     if (!gameMode_.active()) return;
+    // The last snapshot can predate game mode's own switch (Exit right after entering a game):
+    // read the profile again before deciding whether it is still the one game mode set.
+    if (const auto r = ipc::call("STATUS", 5000); r.response && r.response->ok) {
+        try {
+            snapshot_ = decodeSnapshot(r.response->body);
+            error_.clear();
+        } catch (const std::exception&) {
+        }
+    }
     const GameCurrent now = gameCurrent();
     const GamePending before = *gameMode_.pending();
     const GameStep step = gameMode_.restoreNow(now);
     if (step.setPower) setWindowsPowerMode(*step.setPower);
-    bool profileDone = !step.setProfile;
+    // Profile unknown (service unreachable): keep that part for the next start.
+    bool profileDone = !step.setProfile && (!before.appliedProfile || now.profile);
     if (step.setProfile && snapshot_) {
         const auto r = ipc::call(switchRequest(*snapshot_, *step.setProfile).text, 15000);
         profileDone = r.response && r.response->ok;
