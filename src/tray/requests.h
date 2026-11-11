@@ -22,6 +22,9 @@ Request profileRequest(const Snapshot& s, uint8_t target);
 // Shift is stuck.
 Request gmodeToggleRequest(const Snapshot& s, uint8_t lastRegular);
 
+// Switch to any profile, G-Mode included (game mode's enter and restore).
+Request switchRequest(const Snapshot& s, uint8_t target);
+
 // "Primarily AC" for PrimAcUse, the BIOS name otherwise.
 std::wstring chargeModeLabel(const std::string& mode);
 

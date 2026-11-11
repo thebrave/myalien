@@ -4,7 +4,11 @@
 // and a menu to change profile, G-Mode and charge mode through the MyAlien service.
 // Runs as the logged-in user, never elevated; without the service it only shows that it is missing.
 
+#include "core/games.h"
 #include "core/snapshot.h"
+#include "tray/game_mode.h"
+#include "tray/game_settings.h"
+#include "tray/game_watch.h"
 #include "tray/status_window.h"
 #include "tray/worker.h"
 
@@ -34,6 +38,18 @@ private:
     void pushToWindow();
     void noticeOutsideChanges(const Snapshot& previous, const Snapshot& now);
 
+    // Game mode (docs/game-mode.md): detection and power mode here, profile through the service.
+    void startGameMode();  // catalog watcher + foreground hook
+    void stopGameMode();
+    void onForegroundChange();
+    void evaluateGameMode();
+    void carryOut(const GameStep& step);
+    GameCurrent gameCurrent() const;
+    void restoreGameModeOnExit();
+    std::wstring gameTargetsText() const;
+    static void CALLBACK foregroundHook(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD);
+    static TrayApp* instance_;  // for the WinEvent callback (one TrayApp per process)
+
     HWND hwnd_ = nullptr;
     UINT taskbarCreated_ = 0;
     std::unique_ptr<Worker> worker_;
@@ -47,6 +63,15 @@ private:
     std::optional<Snapshot> snapshot_;  // last good snapshot
     std::string error_;                 // last error talking to the service (empty = fine)
     uint8_t lastRegularProfile_ = 0xA0; // profile to return to when leaving G-Mode
+
+    GameSettings gameSettings_;
+    GameModeController gameMode_;
+    std::unique_ptr<GameWatcher> gameWatcher_;
+    std::optional<games::Matcher> matcher_;  // empty until the first scan arrives
+    HWINEVENTHOOK foregroundHook_ = nullptr;
+    std::wstring foregroundImage_;
+    std::optional<games::Game> focusedGame_;  // the foreground process is this game
+    std::wstring activeGameName_;             // game that engaged game mode (menu, tooltip)
 };
 
 }  // namespace myalien::tray

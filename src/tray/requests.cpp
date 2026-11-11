@@ -24,6 +24,11 @@ Request gmodeToggleRequest(const Snapshot& s, uint8_t lastRegular) {
     return {std::format("GMODE OFF 0x{:02X}", back), "G-Mode off"};
 }
 
+Request switchRequest(const Snapshot& s, uint8_t target) {
+    if (target == profile::GMode) return {"GMODE ON", "Thermal profile: G-Mode"};
+    return profileRequest(s, target);
+}
+
 std::wstring chargeModeLabel(const std::string& mode) {
     if (mode == "PrimAcUse") return L"Primarily AC";
     return toWide(mode);

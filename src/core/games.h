@@ -9,6 +9,8 @@
 
 namespace myalien::games {
 
+enum class RegRoot { LocalMachine, CurrentUser };  // avoids <windows.h> in this header
+
 enum class Source { Steam, Epic, Ubisoft, BattleNet, Gog, Ea, Riot, Rockstar, Xbox, Amazon, GameBar, Manual };
 const char* toString(Source s);
 
@@ -27,9 +29,18 @@ struct SourceReport {
     std::string error;     // non-fatal read problem, for diagnostics
 };
 
+// A place whose change may mean a game was installed or removed.
+struct WatchTarget {
+    enum class Kind { Directory, RegistryKey } kind = Kind::Directory;
+    RegRoot root = RegRoot::LocalMachine;  // RegistryKey only
+    std::wstring path;
+    bool contentWrites = false;  // Directory: also report file writes (a database), not only names
+};
+
 struct Catalog {
     std::vector<Game> games;  // deduplicated, sorted by name
     std::vector<SourceReport> sources;
+    std::vector<WatchTarget> watch;  // only places that exist
     double milliseconds = 0;  // scan duration
 };
 

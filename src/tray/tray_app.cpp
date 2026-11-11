@@ -3,6 +3,7 @@
 #include "core/actions.h"
 #include "core/awcc.h"
 #include "core/error.h"
+#include "core/ipc.h"
 #include "tray/autostart.h"
 #include "tray/icon.h"
 #include "tray/requests.h"
@@ -31,6 +32,7 @@ constexpr UINT ID_CHARGE_BASE = 1500;   // + index in snapshot.chargeModes
 constexpr UINT ID_AUTOSTART = 1600;
 constexpr UINT ID_REFRESH = 1601;
 constexpr UINT ID_OPEN = 1602;
+constexpr UINT ID_GAMEMODE = 1603;
 constexpr UINT ID_EXIT = 1699;
 
 std::string lower(std::string s) {
@@ -58,8 +60,11 @@ std::wstring tempLine(const Snapshot& s) {
 
 }  // namespace
 
+TrayApp* TrayApp::instance_ = nullptr;
+
 // ---------------------------------------------------------------------------------------------
 int TrayApp::run(HINSTANCE instance) {
+    instance_ = this;
     taskbarCreated_ = RegisterWindowMessageW(L"TaskbarCreated");
 
     WNDCLASSEXW wc{sizeof(wc)};
@@ -79,14 +84,20 @@ int TrayApp::run(HINSTANCE instance) {
     worker_->requestSnapshot();
     SetTimer(hwnd_, kRefreshTimer, kRefreshMs, nullptr);
 
+    gameSettings_ = loadGameSettings();
+    if (const auto pending = loadGamePending()) gameMode_.resume(*pending);  // restored once no game is in front
+    if (gameSettings_.enabled) startGameMode();
+
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
         if (window_ && window_->hwnd() && IsDialogMessageW(window_->hwnd(), &msg)) continue;  // Tab between controls
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+    stopGameMode();
     window_.reset();
     worker_.reset();
+    instance_ = nullptr;
     return 0;
 }
 
@@ -124,7 +135,18 @@ LRESULT TrayApp::handle(UINT msg, WPARAM wp, LPARAM lp) {
         case WM_TIMER:
             // Every 2 s while the window is open, every 6 s otherwise.
             if (wp == kRefreshTimer && (window_->visible() || ++timerTicks_ % 3 == 0)) worker_->requestSnapshot();
+            // Leave delay and power-source changes; nothing to do while no game is involved.
+            if (wp == kRefreshTimer && (gameMode_.active() || focusedGame_)) evaluateGameMode();
             return 0;
+
+        case WM_APP_GAMES: {
+            std::unique_ptr<games::Catalog> cat(reinterpret_cast<games::Catalog*>(lp));
+            if (!gameWatcher_) return 0;  // game mode turned off meanwhile
+            matcher_.emplace(std::move(cat->games));
+            foregroundImage_.clear();  // re-match the current foreground against the new list
+            onForegroundChange();
+            return 0;
+        }
 
         case WM_APP_SNAPSHOT: {
             std::unique_ptr<SnapshotResult> r(reinterpret_cast<SnapshotResult*>(lp));
@@ -140,6 +162,7 @@ LRESULT TrayApp::handle(UINT msg, WPARAM wp, LPARAM lp) {
             }
             updateIcon();
             pushToWindow();
+            if (gameMode_.active() || focusedGame_) evaluateGameMode();  // e.g. a restore waiting for the service
             return 0;
         }
 
@@ -209,6 +232,7 @@ void TrayApp::updateIcon() {
         tip = L"MyAlien · " + toWide(profileName(snapshot_->profile)) +
               (stuck ? L" · G-Mode stuck (fans at full boost)" : L"") + L"\n" + tempLine(*snapshot_);
     }
+    if (gameMode_.active() && !activeGameName_.empty()) tip += L"\nGame: " + activeGameName_;
     if (tip.size() > 127) tip.resize(127);
 
     NOTIFYICONDATAW nid{sizeof(nid)};
@@ -334,6 +358,12 @@ void TrayApp::showMenu(POINT at) {
     }
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    if (gameMode_.active() && !activeGameName_.empty()) {
+        const std::wstring line = L"Game: " + activeGameName_ + L" → " + gameTargetsText();
+        AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, line.c_str());
+    }
+    AppendMenuW(menu, MF_STRING | (gameSettings_.enabled ? MF_CHECKED : MF_UNCHECKED), ID_GAMEMODE, L"Game mode");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, ID_OPEN, L"Open MyAlien…");
     SetMenuDefaultItem(menu, ID_OPEN, FALSE);
     AppendMenuW(menu, MF_STRING | (autostartEnabled() ? MF_CHECKED : MF_UNCHECKED), ID_AUTOSTART, L"Start with Windows");
@@ -349,7 +379,17 @@ void TrayApp::showMenu(POINT at) {
 
 void TrayApp::onCommand(UINT id) {
     if (id == ID_EXIT) {
+        restoreGameModeOnExit();
         DestroyWindow(hwnd_);
+        return;
+    }
+    if (id == ID_GAMEMODE) {
+        gameSettings_.enabled = !gameSettings_.enabled;
+        if (gameSettings_.enabled) gameSettings_.notified = false;  // tell once when it first acts
+        if (!saveGameSettings(gameSettings_)) notify(L"Game mode", L"Could not save the setting.", true);
+        if (gameSettings_.enabled) startGameMode();
+        else stopGameMode();
+        evaluateGameMode();  // turning it off restores right away
         return;
     }
     if (id == ID_REFRESH) {
@@ -388,6 +428,121 @@ void TrayApp::onCommand(UINT id) {
         // Several BIOS writes and reads (~1.5 s each).
         write("CHARGE " + lower(m), "Charging mode: " + m, 40000);
     }
+}
+
+// --- Game mode -------------------------------------------------------------------------------
+void TrayApp::startGameMode() {
+    if (!gameWatcher_) gameWatcher_ = std::make_unique<GameWatcher>(hwnd_);
+    if (!foregroundHook_)
+        // Out-of-context: delivered through this thread's message loop, no DLL injection, and
+        // nothing runs between foreground changes.
+        foregroundHook_ = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, foregroundHook, 0,
+                                          0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+}
+
+void TrayApp::stopGameMode() {
+    if (foregroundHook_) UnhookWinEvent(foregroundHook_);
+    foregroundHook_ = nullptr;
+    gameWatcher_.reset();
+    matcher_.reset();
+    focusedGame_.reset();
+    foregroundImage_.clear();
+}
+
+void CALLBACK TrayApp::foregroundHook(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD) {
+    if (instance_) instance_->onForegroundChange();
+}
+
+void TrayApp::onForegroundChange() {
+    const std::wstring image = games::foregroundImage();
+    if (image == foregroundImage_ && !image.empty()) return;
+    foregroundImage_ = image;
+    const games::Game* g = matcher_ ? matcher_->match(image) : nullptr;
+    if (g) focusedGame_ = *g;
+    else focusedGame_.reset();
+    evaluateGameMode();
+}
+
+GameCurrent TrayApp::gameCurrent() const {
+    GameCurrent c;
+    c.power = windowsPowerMode();
+    if (snapshot_ && error_.empty() && !snapshot_->thermalError) c.profile = snapshot_->profile;
+    return c;
+}
+
+void TrayApp::evaluateGameMode() {
+    if (!snapshot_ && error_.empty()) return;  // first status answer not in yet
+    const GameCurrent now = gameCurrent();
+    const bool allowed = gameSettings_.enabled && focusedGame_ &&
+                         (!gameSettings_.onlyOnAc || onAcPower().value_or(true));
+    // A profile to restore needs the service; keep the record until it answers.
+    if (!allowed && gameMode_.active() && gameMode_.pending()->appliedProfile && !now.profile) return;
+
+    const bool wasLeaving = gameMode_.leaving();
+    const GameStep step = gameSettings_.enabled
+                              ? gameMode_.update(allowed, now, gameSettings_.targets, GetTickCount64())
+                              : gameMode_.restoreNow(now);
+    if (allowed) activeGameName_ = focusedGame_->name;  // also when switching between two games
+    if (gameMode_.leaving() && !wasLeaving) worker_->requestSnapshot();  // fresh profile for the restore check
+    carryOut(step);
+}
+
+void TrayApp::carryOut(const GameStep& step) {
+    if (step.kind == GameStep::Kind::None) return;
+    // The record goes first, so a crash right after a change still restores it.
+    if (step.savePending) saveGamePending(*gameMode_.pending());
+    if (step.clearPending) clearGamePending();
+
+    const std::wstring who = activeGameName_.empty() ? L"Game mode" : L"Game mode · " + activeGameName_;
+    if (step.setPower) {
+        if (const unsigned long rc = setWindowsPowerMode(*step.setPower); rc != 0)
+            notify(who, L"Could not set the Windows power mode: " + toWide(hrMessage(HRESULT_FROM_WIN32(rc))), true);
+    }
+    if (step.setProfile && snapshot_) {
+        const Request r = switchRequest(*snapshot_, *step.setProfile);
+        write(r.text, std::string("Game mode: ") + profileName(*step.setProfile));
+    }
+    if (step.kind == GameStep::Kind::Enter && (step.setPower || step.setProfile) && !gameSettings_.notified) {
+        notify(who, gameTargetsText() + L" while the game is in front; restored when you leave it.", false);
+        gameSettings_.notified = true;
+        saveGameSettings(gameSettings_);
+    }
+    if (step.kind == GameStep::Kind::Restore) activeGameName_.clear();
+    updateIcon();
+    pushToWindow();
+}
+
+// Exit from the menu: undo game mode now rather than at the next start. The profile request is
+// sent synchronously (the worker is about to stop); if it fails, the record keeps that part.
+void TrayApp::restoreGameModeOnExit() {
+    if (!gameMode_.active()) return;
+    const GameCurrent now = gameCurrent();
+    const GamePending before = *gameMode_.pending();
+    const GameStep step = gameMode_.restoreNow(now);
+    if (step.setPower) setWindowsPowerMode(*step.setPower);
+    bool profileDone = !step.setProfile;
+    if (step.setProfile && snapshot_) {
+        const auto r = ipc::call(switchRequest(*snapshot_, *step.setProfile).text, 15000);
+        profileDone = r.response && r.response->ok;
+    }
+    if (profileDone) {
+        clearGamePending();
+    } else {
+        GamePending left;
+        left.savedProfile = before.savedProfile;
+        left.appliedProfile = before.appliedProfile;
+        saveGamePending(left);
+    }
+}
+
+std::wstring TrayApp::gameTargetsText() const {
+    std::wstring t;
+    if (gameSettings_.targets.profile) t = toWide(profileName(*gameSettings_.targets.profile));
+    if (gameSettings_.targets.power) {
+        if (!t.empty()) t += L", ";
+        t += toWide(toString(*gameSettings_.targets.power));
+    }
+    return t.empty() ? L"no change" : t;
 }
 
 }  // namespace myalien::tray

@@ -19,3 +19,9 @@ add_test(NAME thermal_state COMMAND thermal_state_test)
 add_executable(games_test games_test.cpp)
 target_link_libraries(games_test PRIVATE myalien-core)
 add_test(NAME games COMMAND games_test)
+
+# Game mode decisions, compiled directly from src/tray (pure logic, no tray runtime).
+add_executable(game_mode_test game_mode_test.cpp ${PROJECT_SOURCE_DIR}/src/tray/game_mode.cpp)
+target_include_directories(game_mode_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(game_mode_test PRIVATE myalien-core)
+add_test(NAME game_mode COMMAND game_mode_test)

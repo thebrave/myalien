@@ -152,6 +152,19 @@ std::wstring utf8(std::string_view s) { return toWide(s); }
 struct Collector {
     std::vector<Game> games;
     std::vector<SourceReport> reports;
+    std::vector<WatchTarget> watch;
+
+    void watchDir(const std::wstring& dir, bool contentWrites = false) {
+        if (!isDir(dir)) return;
+        for (const auto& w : watch)
+            if (w.kind == WatchTarget::Kind::Directory && ieq(w.path, dir)) return;
+        watch.push_back({WatchTarget::Kind::Directory, RegRoot::LocalMachine, dir, contentWrites});
+    }
+    void watchKey(HKEY root, const wchar_t* path) {
+        if (!openKey(root, path)) return;
+        watch.push_back({WatchTarget::Kind::RegistryKey,
+                         root == HKEY_CURRENT_USER ? RegRoot::CurrentUser : RegRoot::LocalMachine, path});
+    }
 
     SourceReport& report(Source s) {
         for (auto& r : reports)
@@ -215,6 +228,7 @@ void scanSteam(Collector& c) {
         }
     }
     for (const auto& lib : libraries) {
+        c.watchDir(lib + L"\\steamapps");  // appmanifest_*.acf created / removed
         const std::wstring apps = lib + L"\\steamapps\\";
         for (const auto& file : listDir(apps + L"appmanifest_*.acf", false)) {
             const auto acf = text::parseKeyValues(readFile(apps + file));
@@ -232,6 +246,7 @@ void scanEpic(Collector& c) {
     const std::wstring dir = expandEnv(L"%ProgramData%\\Epic\\EpicGamesLauncher\\Data\\Manifests");
     if (dir.empty() || !isDir(dir)) return;
     r.present = true;
+    c.watchDir(dir);
     for (const auto& file : listDir(dir + L"\\*.item", false)) {
         const auto m = text::parseJsonObject(readFile(dir + L"\\" + file));
         auto get = [&](const char* k) {
@@ -328,6 +343,7 @@ void scanRiot(Collector& c, const std::vector<UninstallEntry>& entries) {
     const std::wstring meta = expandEnv(L"%ProgramData%\\Riot Games\\Metadata");
     if (!meta.empty() && isDir(meta)) {
         r.present = true;
+        c.watchDir(meta);
         for (const auto& patch : listDir(meta + L"\\*.live", true)) {
             const auto yaml = readFile(meta + L"\\" + patch + L"\\" + patch + L".product_settings.yaml");
             const auto path = text::yamlScalar(yaml, "product_install_full_path");
@@ -414,6 +430,7 @@ void scanXbox(Collector& c) {
         for (const auto& root : gamingRoots(d)) {
             if (!isDir(root)) continue;
             r.present = true;
+            c.watchDir(root);
             for (const auto& child : listDir(root + L"\\*", true)) {
                 const std::wstring dir = root + L"\\" + child;
                 const std::wstring config = dir + L"\\Content\\MicrosoftGame.config";
@@ -448,6 +465,7 @@ void scanAmazon(Collector& c) {
     const std::wstring db = expandEnv(L"%LOCALAPPDATA%\\Amazon Games\\Data\\Games\\Sql\\GameInstallInfo.sqlite");
     if (db.empty() || !isFile(db)) return;
     r.present = true;
+    c.watchDir(parentDir(db), true);  // installs change the database, not file names
     sqlite3* h = nullptr;
     if (sqlite3_open_v2(sqliteUri(db).c_str(), &h, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI, nullptr) != SQLITE_OK) {
         r.error = h ? sqlite3_errmsg(h) : "cannot open the database";
@@ -610,7 +628,19 @@ Catalog scan() {
     scanAmazon(c);
     scanGameBar(c);
 
+    // Registry catalogs: an install or uninstall adds or removes a subkey.
+    c.watchKey(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall");
+    c.watchKey(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall");
+    c.watchKey(HKEY_CURRENT_USER, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall");
+    c.watchKey(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WOW6432Node\\Ubisoft\\Launcher\\Installs");
+    c.watchKey(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WOW6432Node\\GOG.com\\Games");
+    c.watchKey(HKEY_LOCAL_MACHINE, L"SOFTWARE\\EA Games");
+    c.watchKey(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WOW6432Node\\EA Games");
+    c.watchKey(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WOW6432Node\\Rockstar Games");
+    c.watchKey(HKEY_CURRENT_USER, L"System\\GameConfigStore\\Children");
+
     Catalog cat;
+    cat.watch = std::move(c.watch);
     cat.games = finish(std::move(c.games));
     for (auto& r : c.reports) {
         r.games = static_cast<int>(

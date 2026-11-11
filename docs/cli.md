@@ -314,7 +314,18 @@ Start `myalien-tray.exe` as yourself (not elevated); it needs the MyAlien servic
     *Use range* (switches to Custom with that range), and how old the charge settings are.
   * The bottom line shows the result of the last change. Closing the window only hides it.
 * **Right click** opens the **menu**: profile (radio items), G-Mode on/off, battery level and health,
-  **Charging** submenu, *Open MyAlien…*, **Start with Windows**, Refresh, Exit.
+  **Charging** submenu, **Game mode** (and, while a game has engaged it, a `Game: <name> → …` line),
+  *Open MyAlien…*, **Start with Windows**, Refresh, Exit.
+* **Game mode** (off by default, [game-mode.md](game-mode.md)): while a game from the catalog
+  (`myalien games`) is in the foreground, the tray sets the thermal profile (through the service)
+  and the Windows power mode (itself); default G-Mode + Best performance, on AC only. About 8 s
+  after the game leaves the foreground, each value is restored unless something else changed it
+  meanwhile. *Exit* restores at once; after a crash or logoff, the next start restores. Only the
+  first switch after turning it on shows a notification; failures always do. Until the status
+  window gets its Games group, the targets are DWORD values in `HKCU\Software\MyAlien\GameMode`:
+  `PowerMode` (1 efficiency, 2 balanced, 3 performance, `0xFFFFFFFF` leave alone), `Profile`
+  (a profile ID such as `0xAB` / `0xA1`, or `0xFFFFFFFF`), `OnlyOnAc` (1 / 0). Restart the tray
+  after editing them.
 * Changes go through the service like `myalien` commands. Notifications: a change failed, a
   charge-mode change completed (when the window is closed), **the profile was changed by something
   else** (e.g. MyDell), or **Game Shift got stuck** (fans at full boost).

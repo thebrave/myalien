@@ -296,3 +296,12 @@ games per source. The catalog is scanned at tray start and on Rescan.
 **CLI**: `myalien games` prints the catalog and whether the current foreground process matches;
 `myalien powermode [set <mode>]` reads or sets the Windows power mode directly. Both run as the
 user and never use the service.
+
+### Implementation notes (increment 2)
+
+* The foreground hook skips the tray's own windows (`WINEVENT_SKIPOWNPROCESS`): opening the MyAlien
+  menu or status window during a game does not count as leaving it.
+* Every 2 s the tray re-checks only while a game is focused or game mode is engaged (leave delay,
+  AC unplugged with “only on AC”). Otherwise nothing runs between foreground changes.
+* A restore that needs the thermal profile waits for the service to answer; the pending record
+  stays in `HKCU\Software\MyAlien\GameMode\Pending` until then.
