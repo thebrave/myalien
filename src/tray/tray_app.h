@@ -5,6 +5,7 @@
 // Runs as the logged-in user, never elevated; without the service it only shows that it is missing.
 
 #include "core/snapshot.h"
+#include "tray/status_window.h"
 #include "tray/worker.h"
 
 #include <windows.h>
@@ -30,10 +31,15 @@ private:
     void onCommand(UINT id);
     void notify(const std::wstring& title, const std::wstring& text, bool error);
     void write(const std::string& request, const std::string& what, DWORD timeoutMs = 15000);
+    void pushToWindow();
+    void noticeOutsideChanges(const Snapshot& previous, const Snapshot& now);
 
     HWND hwnd_ = nullptr;
     UINT taskbarCreated_ = 0;
     std::unique_ptr<Worker> worker_;
+    std::unique_ptr<StatusWindow> window_;
+    unsigned timerTicks_ = 0;
+    ULONGLONG lastWriteTick_ = 0;  // when this tray last sent a change (outside-change detection)
     HICON icon_ = nullptr;
     std::optional<uint8_t> iconProfile_;  // profile the current icon shows
     bool iconAdded_ = false;

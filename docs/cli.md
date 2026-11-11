@@ -249,12 +249,17 @@ Start `myalien-tray.exe` as yourself (not elevated); it needs the MyAlien servic
 
 * **Icon**: a coloured letter for the current profile — **Q** Quiet, **B** Balanced,
   **P** Balanced-Performance, **L** Low-Power, **C** Custom, **G** G-Mode; a grey **?** when the
-  service cannot be reached. The tooltip shows the profile and CPU / GPU temperatures and fan speeds,
-  refreshed every 5 s.
-* **Menu** (left or right click): profile (radio items), G-Mode on/off, battery level and health,
-  **Charging** submenu (Adaptive, Standard, Express, Primarily AC, Custom with its stored range),
-  **Start with Windows**, Refresh, Exit. Fan boost and the custom charge range are set with the
-  command line for now.
-* Changes go through the service like `myalien` commands; a notification appears if one fails, and
-  when a charge-mode change (several seconds) completes.
+  service cannot be reached; **G** also while Game Shift is stuck. The tooltip shows the profile and
+  CPU / GPU temperatures and fan speeds (refreshed every 6 s, every 2 s while the window is open).
+* **Left click** opens the **status window**:
+  * *Thermal*: profile list, G-Mode checkbox (also shows and fixes a stuck Game Shift), CPU / GPU
+    temperature, fan speed and boost, and **boost sliders** with *Apply boost* (Custom profile only).
+  * *Battery*: model, charge, health, **Charging** mode list, **custom range** (start – stop %) with
+    *Use range* (switches to Custom with that range), and how old the charge settings are.
+  * The bottom line shows the result of the last change. Closing the window only hides it.
+* **Right click** opens the **menu**: profile (radio items), G-Mode on/off, battery level and health,
+  **Charging** submenu, *Open MyAlien…*, **Start with Windows**, Refresh, Exit.
+* Changes go through the service like `myalien` commands. Notifications: a change failed, a
+  charge-mode change completed (when the window is closed), **the profile was changed by something
+  else** (e.g. MyDell), or **Game Shift got stuck** (fans at full boost).
 * Only one tray icon runs per session.

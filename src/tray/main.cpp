@@ -3,9 +3,16 @@
 #include "tray/tray_app.h"
 
 #include <windows.h>
+#include <commctrl.h>
+
+// Common Controls v6 (visual styles for the status window), via a linker-generated manifest.
+#pragma comment(linker, "\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' " \
+                        "processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    INITCOMMONCONTROLSEX icc{sizeof(icc), ICC_STANDARD_CLASSES | ICC_BAR_CLASSES | ICC_UPDOWN_CLASS};
+    InitCommonControlsEx(&icc);
 
     // One tray icon per user session.
     HANDLE mutex = CreateMutexW(nullptr, TRUE, L"Local\\MyAlienTray");

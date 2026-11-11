@@ -5,6 +5,7 @@
 #include "core/error.h"
 #include "tray/autostart.h"
 #include "tray/icon.h"
+#include "tray/requests.h"
 
 #include <windowsx.h>
 
@@ -21,7 +22,7 @@ constexpr wchar_t kClassName[] = L"MyAlienTrayWindow";
 constexpr UINT WM_APP_TRAY = WM_APP + 1;  // notify-icon callback
 constexpr UINT kTrayId = 1;
 constexpr UINT_PTR kRefreshTimer = 1;
-constexpr UINT kRefreshMs = 5000;
+constexpr UINT kRefreshMs = 2000;
 
 // Menu command ids.
 constexpr UINT ID_PROFILE_BASE = 1000;  // + profile id (0x00..0xFF)
@@ -29,6 +30,7 @@ constexpr UINT ID_GMODE = 1400;
 constexpr UINT ID_CHARGE_BASE = 1500;   // + index in snapshot.chargeModes
 constexpr UINT ID_AUTOSTART = 1600;
 constexpr UINT ID_REFRESH = 1601;
+constexpr UINT ID_OPEN = 1602;
 constexpr UINT ID_EXIT = 1699;
 
 std::string lower(std::string s) {
@@ -71,15 +73,19 @@ int TrayApp::run(HINSTANCE instance) {
     if (!hwnd_) return 1;
 
     worker_ = std::make_unique<Worker>(hwnd_);
+    window_ = std::make_unique<StatusWindow>(
+        instance, [this](const std::string& req, const std::string& what, DWORD t) { write(req, what, t); });
     addIcon();
     worker_->requestSnapshot();
     SetTimer(hwnd_, kRefreshTimer, kRefreshMs, nullptr);
 
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
+        if (window_ && window_->hwnd() && IsDialogMessageW(window_->hwnd(), &msg)) continue;  // Tab between controls
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+    window_.reset();
     worker_.reset();
     return 0;
 }
@@ -103,37 +109,51 @@ LRESULT TrayApp::handle(UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_APP_TRAY:
             switch (LOWORD(lp)) {
-                case WM_CONTEXTMENU:
-                case NIN_SELECT:
+                case NIN_SELECT:      // left click / Enter: status window
                 case NIN_KEYSELECT:
+                    window_->show();
+                    pushToWindow();
+                    worker_->requestSnapshot();
+                    return 0;
+                case WM_CONTEXTMENU:  // right click: menu
                     showMenu(POINT{GET_X_LPARAM(wp), GET_Y_LPARAM(wp)});
                     return 0;
             }
             return 0;
 
         case WM_TIMER:
-            if (wp == kRefreshTimer) worker_->requestSnapshot();
+            // Every 2 s while the window is open, every 6 s otherwise.
+            if (wp == kRefreshTimer && (window_->visible() || ++timerTicks_ % 3 == 0)) worker_->requestSnapshot();
             return 0;
 
         case WM_APP_SNAPSHOT: {
             std::unique_ptr<SnapshotResult> r(reinterpret_cast<SnapshotResult*>(lp));
             if (r->snapshot) {
+                if (snapshot_) noticeOutsideChanges(*snapshot_, *r->snapshot);
                 snapshot_ = std::move(r->snapshot);
                 error_.clear();
-                if (!snapshot_->thermalError && snapshot_->profile != profile::GMode)
+                if (!snapshot_->thermalError && snapshot_->profile != profile::GMode &&
+                    !gameShiftStuck(snapshot_->profile, snapshot_->gameShift))
                     lastRegularProfile_ = snapshot_->profile;
             } else {
                 error_ = r->error;
             }
             updateIcon();
+            pushToWindow();
             return 0;
         }
 
         case WM_APP_WRITE_DONE: {
             std::unique_ptr<WriteResult> r(reinterpret_cast<WriteResult*>(lp));
-            // Errors always; successes only when the change is slow enough to be noticed (charge).
-            if (!r->ok) notify(toWide(r->what) + L" failed", toWide(r->text), true);
-            else if (r->what.starts_with("Charging")) notify(toWide(r->what), toWide(r->text), false);
+            lastWriteTick_ = GetTickCount64();
+            std::string text = r->text;
+            while (!text.empty() && (text.back() == '\n' || text.back() == ' ')) text.pop_back();
+            // Errors always; successes only when the change is slow enough to be noticed (charge),
+            // or quietly in the window's status line.
+            if (!r->ok) notify(toWide(r->what) + L" failed", toWide(text), true);
+            else if (r->what.starts_with("Charging") && !window_->visible()) notify(toWide(r->what), toWide(text), false);
+            window_->setStatusText(toWide(r->what) + (r->ok ? L": done." : L": failed. ") + (r->ok ? L"" : toWide(text)));
+            pushToWindow();
             worker_->requestSnapshot();
             return 0;
         }
@@ -227,7 +247,31 @@ void TrayApp::notify(const std::wstring& title, const std::wstring& text, bool e
 }
 
 void TrayApp::write(const std::string& request, const std::string& what, DWORD timeoutMs) {
+    lastWriteTick_ = GetTickCount64();
     worker_->requestWrite(request, what, timeoutMs);
+    pushToWindow();  // greys the window's inputs while the change runs
+}
+
+void TrayApp::pushToWindow() {
+    if (window_) window_->update(snapshot_ ? &*snapshot_ : nullptr, error_, worker_->busyWriting(), lastRegularProfile_);
+}
+
+// Changes this tray did not ask for (MyDell, firmware, another tool): tell the user, since the
+// icon alone is easy to miss. Changes within 15 s of our own write are assumed to be ours.
+void TrayApp::noticeOutsideChanges(const Snapshot& prev, const Snapshot& now) {
+    if (prev.thermalError || now.thermalError) return;
+    const bool ours = worker_->busyWriting() || GetTickCount64() - lastWriteTick_ < 15000;
+    const bool wasStuck = gameShiftStuck(prev.profile, prev.gameShift);
+    const bool isStuck = gameShiftStuck(now.profile, now.gameShift);
+    const std::wstring by = now.fusion == ServiceState::Running ? L" (MyDell is running)" : L"";
+
+    if (isStuck && !wasStuck) {
+        notify(L"G-Mode stuck: fans at full boost",
+               L"Game Shift stayed on after a profile change" + by + L". Click the icon and untick G-Mode to fix it.", true);
+    } else if (!ours && now.profile != prev.profile) {
+        notify(L"Thermal profile changed",
+               toWide(profileName(prev.profile)) + L" → " + toWide(profileName(now.profile)) + by, false);
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -290,6 +334,8 @@ void TrayApp::showMenu(POINT at) {
     }
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, ID_OPEN, L"Open MyAlien…");
+    SetMenuDefaultItem(menu, ID_OPEN, FALSE);
     AppendMenuW(menu, MF_STRING | (autostartEnabled() ? MF_CHECKED : MF_UNCHECKED), ID_AUTOSTART, L"Start with Windows");
     AppendMenuW(menu, MF_STRING, ID_REFRESH, L"Refresh");
     AppendMenuW(menu, MF_STRING, ID_EXIT, L"Exit");
@@ -310,6 +356,11 @@ void TrayApp::onCommand(UINT id) {
         worker_->requestSnapshot();
         return;
     }
+    if (id == ID_OPEN) {
+        window_->show();
+        pushToWindow();
+        return;
+    }
     if (id == ID_AUTOSTART) {
         if (!setAutostart(!autostartEnabled()))
             notify(L"Start with Windows", L"Could not change the Run registry key.", true);
@@ -320,21 +371,15 @@ void TrayApp::onCommand(UINT id) {
 
     const bool stuck = gameShiftStuck(s.profile, s.gameShift);
     if (id == ID_GMODE) {
-        // Stuck: leave G-Mode towards the profile the firmware already shows.
-        const uint8_t back = stuck ? s.profile : lastRegularProfile_;
-        if (s.profile != profile::GMode && !stuck) write("GMODE ON", "G-Mode on");
-        else if (back == profile::Custom) write("PROFILE 0x00", "G-Mode off");  // Custom is not a GMODE OFF target
-        else write(std::format("GMODE OFF 0x{:02X}", back), "G-Mode off");
+        const Request r = gmodeToggleRequest(s, lastRegularProfile_);
+        write(r.text, r.what);
         return;
     }
     if (id >= ID_PROFILE_BASE && id <= ID_PROFILE_BASE + 0xFF) {
         const auto p = static_cast<uint8_t>(id - ID_PROFILE_BASE);
         if (p == s.profile && !stuck) return;
-        // Leaving G-Mode goes through GMODE OFF so the service records the right thing.
-        if (s.profile == profile::GMode && p != profile::Custom)
-            write(std::format("GMODE OFF 0x{:02X}", p), "Thermal profile: " + std::string(profileName(p)));
-        else
-            write(std::format("PROFILE 0x{:02X}", p), "Thermal profile: " + std::string(profileName(p)));
+        const Request r = profileRequest(s, p);
+        write(r.text, r.what);
         return;
     }
     if (id >= ID_CHARGE_BASE && id < ID_CHARGE_BASE + s.chargeModes.size()) {

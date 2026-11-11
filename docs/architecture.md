@@ -195,7 +195,9 @@ charge refresher and the thermal monitor. AC/DC rules are not implemented.
 | File | Responsibility |
 |---|---|
 | `main.cpp` | `wWinMain`: per-monitor DPI awareness v2, one instance per session (`Local\MyAlienTray` mutex) |
-| `tray_app.h/.cpp` | Hidden top-level window, notify icon (version 4), tooltip, popup menu, commands, notifications; re-adds the icon on `TaskbarCreated` |
+| `tray_app.h/.cpp` | Hidden top-level window, notify icon (version 4), tooltip, popup menu, commands, notifications (failures, outside profile changes, stuck Game Shift); re-adds the icon on `TaskbarCreated` |
+| `status_window.h/.cpp` | Status window: controls created in code from a 96-DPI layout table, scaled to the window DPI (`WM_DPICHANGED`), system message font, common controls v6; updated from each snapshot without overwriting sliders / fields being edited |
+| `requests.h/.cpp` | Pipe requests shared by menu and window (profile / G-Mode, incl. leaving a stuck Game Shift) |
 | `worker.h/.cpp` | Background thread for all pipe calls (STATUS every 5 s, coalesced; writes in order); results posted back as window messages |
 | `icon.h/.cpp` | Profile badge drawn with GDI at the small-icon size: Q quiet, B balanced, P balanced-performance, L low-power, C custom, G G-Mode, grey ? without the service |
 | `autostart.h/.cpp` | "Start with Windows": `HKCU\…\Run\MyAlien` pointing at this executable |
@@ -204,7 +206,9 @@ The tray runs as the logged-in user and only talks to the service (no in-process
 never elevated). Menu: current profile and temperatures, profile radio items (firmware profiles +
 Custom), G-Mode toggle (leaves G-Mode to the last regular profile), battery line, charging-mode
 submenu, Start with Windows, Refresh, Exit. Items are greyed while a change is in progress.
-Notifications only for failures and for charge-mode changes (slow, ~5–10 s).
+Left click opens the status window (refresh every 2 s while open), right click the menu.
+Notifications: failures, finished charge-mode changes (window closed), profile changes not made by
+the tray within the last 15 s, and Game Shift becoming stuck.
 
 ## Safety model, summarised
 
