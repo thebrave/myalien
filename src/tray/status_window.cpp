@@ -16,7 +16,7 @@ namespace {
 
 constexpr wchar_t kClassName[] = L"MyAlienStatusWindow";
 constexpr int kClientW = 420;
-constexpr int kClientH = 474;
+constexpr int kClientH = 634;
 constexpr DWORD kChargeTimeoutMs = 40000;
 
 enum Id : int {
@@ -50,7 +50,26 @@ enum Id : int {
     IDC_PCT,
     IDC_APPLY_RANGE,
     IDC_CHARGE_AGE,
+    IDC_GRP_GAMES,
+    IDC_GM_ENABLE,
+    IDC_GM_LBL_PROFILE,
+    IDC_GM_PROFILE,
+    IDC_GM_LBL_POWER,
+    IDC_GM_POWER,
+    IDC_GM_AC,
+    IDC_GM_NOW,
+    IDC_GM_GAMES,
     IDC_STATUS,
+};
+
+bool isGameControl(int id) { return id >= IDC_GRP_GAMES && id <= IDC_GM_GAMES; }
+
+// Power mode targets in the Games group, in combo order.
+constexpr std::pair<std::optional<myalien::PowerMode>, const wchar_t*> kGamePowerItems[] = {
+    {std::nullopt, L"Leave unchanged"},
+    {myalien::PowerMode::BestEfficiency, L"Best power efficiency"},
+    {myalien::PowerMode::Balanced, L"Balanced"},
+    {myalien::PowerMode::BestPerformance, L"Best performance"},
 };
 
 struct ControlDef {
@@ -101,7 +120,16 @@ constexpr ControlDef kControls[] = {
     {IDC_PCT, WC_STATICW, L"%", kStatic, 242, 362, 20, 20},
     {IDC_APPLY_RANGE, WC_BUTTONW, L"Use range", kButton, 290, 356, 110, 26},
     {IDC_CHARGE_AGE, WC_STATICW, L"", kStaticEllipsis, 24, 400, 376, 20},
-    {IDC_STATUS, WC_STATICW, L"", kStaticEllipsis, 12, 448, 396, 20},
+    {IDC_GRP_GAMES, WC_BUTTONW, L"Games", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 10, 450, 400, 152},
+    {IDC_GM_ENABLE, WC_BUTTONW, L"Game mode: while a game is in front, switch to", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, 24, 474, 376, 22},
+    {IDC_GM_LBL_PROFILE, WC_STATICW, L"Thermal profile", kStatic, 42, 506, 96, 20},
+    {IDC_GM_PROFILE, WC_COMBOBOXW, L"", kCombo, 140, 502, 160, 220},
+    {IDC_GM_LBL_POWER, WC_STATICW, L"Power mode", kStatic, 42, 538, 96, 20},
+    {IDC_GM_POWER, WC_COMBOBOXW, L"", kCombo, 140, 534, 160, 220},
+    {IDC_GM_AC, WC_BUTTONW, L"Only on AC", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, 310, 504, 94, 22},
+    {IDC_GM_GAMES, WC_BUTTONW, L"Games…", kButton, 310, 532, 90, 26},
+    {IDC_GM_NOW, WC_STATICW, L"", kStaticEllipsis, 24, 572, 376, 20},
+    {IDC_STATUS, WC_STATICW, L"", kStaticEllipsis, 12, 608, 396, 20},
 };
 
 std::string lower(std::string s) {
@@ -157,6 +185,8 @@ void StatusWindow::create() {
         SendMessageW(item(id), TBM_SETTICFREQ, 10, 0);
         SendMessageW(item(id), TBM_SETPAGESIZE, 0, 10);
     }
+    for (const auto& [mode, label] : kGamePowerItems)
+        SendMessageW(item(IDC_GM_POWER), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
     SendMessageW(item(IDC_START_UD), UDM_SETRANGE32, 50, 95);
     SendMessageW(item(IDC_STOP_UD), UDM_SETRANGE32, 55, 100);
 
@@ -210,9 +240,11 @@ void StatusWindow::refreshControls() {
     const bool inputs = connected && !busy_;
 
     if (!connected) {
-        for (const auto& c : kControls) EnableWindow(item(c.id), FALSE);
+        for (const auto& c : kControls)
+            if (!isGameControl(c.id)) EnableWindow(item(c.id), FALSE);
         SetWindowTextW(item(IDC_STATUS), (L"MyAlien service: " + toWide(error_.empty() ? std::string("connecting…") : error_)).c_str());
         updating_ = false;
+        refreshGames();
         return;
     }
     for (const auto& c : kControls) EnableWindow(item(c.id), TRUE);
@@ -330,11 +362,84 @@ void StatusWindow::refreshControls() {
 
     if (busy_) SetWindowTextW(item(IDC_STATUS), L"Applying…");
     updating_ = false;
+    refreshGames();
+}
+
+void StatusWindow::updateGames(const GameView& v) {
+    games_ = v;
+    if (hwnd_) refreshGames();
+}
+
+void StatusWindow::refreshGames() {
+    updating_ = true;
+    const GameSettings& g = games_.settings;
+    for (int id = IDC_GRP_GAMES; id <= IDC_GM_GAMES; ++id) EnableWindow(item(id), TRUE);
+    SendMessageW(item(IDC_GM_ENABLE), BM_SETCHECK, g.enabled ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(item(IDC_GM_AC), BM_SETCHECK, g.onlyOnAc ? BST_CHECKED : BST_UNCHECKED, 0);
+
+    // Thermal targets: leave unchanged, the firmware's profiles, G-Mode; plus the saved target
+    // when the service has not told us the list yet.
+    std::vector<std::optional<uint8_t>> items{std::nullopt};
+    const bool thermal = snapshot_ && !snapshot_->thermalError;
+    if (thermal)
+        for (uint8_t p : snapshot_->profiles) items.emplace_back(p);
+    if (!thermal || snapshot_->gameShiftSupported) items.emplace_back(profile::GMode);
+    if (g.targets.profile && std::find(items.begin(), items.end(), g.targets.profile) == items.end())
+        items.push_back(g.targets.profile);
+    HWND pc = item(IDC_GM_PROFILE);
+    if (items != gameProfileItems_) {
+        SendMessageW(pc, CB_RESETCONTENT, 0, 0);
+        for (const auto& p : items) {
+            const std::wstring label = p ? toWide(profileName(*p)) : std::wstring(L"Leave unchanged");
+            SendMessageW(pc, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+        }
+        gameProfileItems_ = items;
+    }
+    for (size_t i = 0; i < gameProfileItems_.size(); ++i)
+        if (gameProfileItems_[i] == g.targets.profile && !SendMessageW(pc, CB_GETDROPPEDSTATE, 0, 0))
+            SendMessageW(pc, CB_SETCURSEL, i, 0);
+    for (size_t i = 0; i < std::size(kGamePowerItems); ++i)
+        if (kGamePowerItems[i].first == g.targets.power && !SendMessageW(item(IDC_GM_POWER), CB_GETDROPPEDSTATE, 0, 0))
+            SendMessageW(item(IDC_GM_POWER), CB_SETCURSEL, i, 0);
+
+    SetWindowTextW(item(IDC_GM_GAMES), games_.games < 0 ? L"Games…" : std::format(L"Games ({})…", games_.games).c_str());
+    SetWindowTextW(item(IDC_GM_NOW), games_.now.c_str());
+    updating_ = false;
+}
+
+void StatusWindow::onGameCommand(int id, int code) {
+    if (id == IDC_GM_GAMES && code == BN_CLICKED) {
+        if (openGames_) openGames_();
+        return;
+    }
+    GameSettings g = games_.settings;
+    if (id == IDC_GM_ENABLE && code == BN_CLICKED) {
+        g.enabled = SendMessageW(item(IDC_GM_ENABLE), BM_GETCHECK, 0, 0) == BST_CHECKED;
+    } else if (id == IDC_GM_AC && code == BN_CLICKED) {
+        g.onlyOnAc = SendMessageW(item(IDC_GM_AC), BM_GETCHECK, 0, 0) == BST_CHECKED;
+    } else if (id == IDC_GM_PROFILE && code == CBN_SELCHANGE) {
+        const auto i = SendMessageW(item(IDC_GM_PROFILE), CB_GETCURSEL, 0, 0);
+        if (i < 0 || static_cast<size_t>(i) >= gameProfileItems_.size()) return;
+        g.targets.profile = gameProfileItems_[static_cast<size_t>(i)];
+    } else if (id == IDC_GM_POWER && code == CBN_SELCHANGE) {
+        const auto i = SendMessageW(item(IDC_GM_POWER), CB_GETCURSEL, 0, 0);
+        if (i < 0 || static_cast<size_t>(i) >= std::size(kGamePowerItems)) return;
+        g.targets.power = kGamePowerItems[static_cast<size_t>(i)].first;
+    } else {
+        return;
+    }
+    games_.settings = g;
+    if (gameChanged_) gameChanged_(g);
 }
 
 // ---------------------------------------------------------------------------------------------
 void StatusWindow::onCommand(int id, int code) {
-    if (updating_ || !snapshot_) return;
+    if (updating_) return;
+    if (isGameControl(id)) {
+        onGameCommand(id, code);
+        return;
+    }
+    if (!snapshot_) return;
     const Snapshot& s = *snapshot_;
 
     if (id == IDC_PROFILE && code == CBN_SELCHANGE) {

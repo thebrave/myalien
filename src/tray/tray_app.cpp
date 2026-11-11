@@ -80,6 +80,7 @@ int TrayApp::run(HINSTANCE instance) {
     worker_ = std::make_unique<Worker>(hwnd_);
     window_ = std::make_unique<StatusWindow>(
         instance, [this](const std::string& req, const std::string& what, DWORD t) { write(req, what, t); });
+    window_->setGameCallbacks([this](const GameSettings& g) { applyGameSettings(g); }, [this] { openGamesDialog(); });
     addIcon();
     worker_->requestSnapshot();
     SetTimer(hwnd_, kRefreshTimer, kRefreshMs, nullptr);
@@ -91,10 +92,13 @@ int TrayApp::run(HINSTANCE instance) {
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
         if (window_ && window_->hwnd() && IsDialogMessageW(window_->hwnd(), &msg)) continue;  // Tab between controls
+        if (gamesDialog_ && gamesDialog_->hwnd() && IsDialogMessageW(gamesDialog_->hwnd(), &msg)) continue;
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
     stopGameMode();
+    gamesDialog_.reset();
+    gameWatcher_.reset();
     window_.reset();
     worker_.reset();
     instance_ = nullptr;
@@ -141,10 +145,10 @@ LRESULT TrayApp::handle(UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_APP_GAMES: {
             std::unique_ptr<games::Catalog> cat(reinterpret_cast<games::Catalog*>(lp));
-            if (!gameWatcher_) return 0;  // game mode turned off meanwhile
-            matcher_.emplace(std::move(cat->games));
-            foregroundImage_.clear();  // re-match the current foreground against the new list
-            onForegroundChange();
+            if (!gameWatcher_) return 0;  // stopped meanwhile
+            catalog_ = std::move(*cat);
+            rebuildMatcher();
+            if (gamesDialog_) gamesDialog_->update(&*catalog_, gameSettings_);
             return 0;
         }
 
@@ -277,7 +281,9 @@ void TrayApp::write(const std::string& request, const std::string& what, DWORD t
 }
 
 void TrayApp::pushToWindow() {
-    if (window_) window_->update(snapshot_ ? &*snapshot_ : nullptr, error_, worker_->busyWriting(), lastRegularProfile_);
+    if (!window_) return;
+    window_->update(snapshot_ ? &*snapshot_ : nullptr, error_, worker_->busyWriting(), lastRegularProfile_);
+    window_->updateGames({gameSettings_, gameNowText(), matcher_ ? static_cast<int>(matcher_->games().size()) : -1});
 }
 
 // Changes this tray did not ask for (MyDell, firmware, another tool): tell the user, since the
@@ -385,12 +391,9 @@ void TrayApp::onCommand(UINT id) {
         return;
     }
     if (id == ID_GAMEMODE) {
-        gameSettings_.enabled = !gameSettings_.enabled;
-        if (gameSettings_.enabled) gameSettings_.notified = false;  // tell once when it first acts
-        if (!saveGameSettings(gameSettings_)) notify(L"Game mode", L"Could not save the setting.", true);
-        if (gameSettings_.enabled) startGameMode();
-        else stopGameMode();
-        evaluateGameMode();  // turning it off restores right away
+        GameSettings g = gameSettings_;
+        g.enabled = !g.enabled;
+        applyGameSettings(std::move(g));
         return;
     }
     if (id == ID_REFRESH) {
@@ -432,8 +435,12 @@ void TrayApp::onCommand(UINT id) {
 }
 
 // --- Game mode -------------------------------------------------------------------------------
-void TrayApp::startGameMode() {
+void TrayApp::ensureCatalog() {
     if (!gameWatcher_) gameWatcher_ = std::make_unique<GameWatcher>(hwnd_);
+}
+
+void TrayApp::startGameMode() {
+    ensureCatalog();
     if (!foregroundHook_)
         // Out-of-context: delivered through this thread's message loop, no DLL injection, and
         // nothing runs between foreground changes.
@@ -444,10 +451,91 @@ void TrayApp::startGameMode() {
 void TrayApp::stopGameMode() {
     if (foregroundHook_) UnhookWinEvent(foregroundHook_);
     foregroundHook_ = nullptr;
-    gameWatcher_.reset();
-    matcher_.reset();
     focusedGame_.reset();
     foregroundImage_.clear();
+    if (gamesDialog_ && gamesDialog_->visible()) return;  // the Games window still shows the list
+    gameWatcher_.reset();
+    catalog_.reset();
+    matcher_.reset();
+}
+
+void TrayApp::rebuildMatcher() {
+    if (!catalog_) return;
+    matcher_.emplace(games::applyUserChoices(catalog_->games, gameSettings_.folders, gameSettings_.excluded));
+    foregroundImage_.clear();  // re-match the current foreground against the new list
+    if (foregroundHook_) onForegroundChange();
+    pushToWindow();
+}
+
+void TrayApp::applyGameSettings(GameSettings g) {
+    const bool turnedOn = g.enabled && !gameSettings_.enabled;
+    if (turnedOn) g.notified = false;  // tell once, the first time it acts
+    const bool choicesChanged = g.folders != gameSettings_.folders || g.excluded != gameSettings_.excluded;
+    gameSettings_ = std::move(g);
+    if (!saveGameSettings(gameSettings_)) notify(L"Game mode", L"Could not save the setting.", true);
+    if (gameSettings_.enabled) startGameMode();
+    else stopGameMode();
+    if (choicesChanged) rebuildMatcher();
+    evaluateGameMode();  // turning it off restores right away
+    pushToWindow();
+}
+
+namespace {
+bool samePath(const std::wstring& a, const std::wstring& b) {
+    return CompareStringOrdinal(a.c_str(), -1, b.c_str(), -1, TRUE) == CSTR_EQUAL;
+}
+}  // namespace
+
+void TrayApp::openGamesDialog() {
+    if (!gamesDialog_) {
+        GamesDialog::Callbacks cb;
+        cb.setIncluded = [this](const std::wstring& key, bool included) {
+            GameSettings g = gameSettings_;
+            std::erase_if(g.excluded, [&](const std::wstring& e) { return samePath(e, key); });
+            if (!included) g.excluded.push_back(key);
+            applyGameSettings(std::move(g));
+        };
+        cb.addFolder = [this](const std::wstring& folder) {
+            GameSettings g = gameSettings_;
+            if (std::none_of(g.folders.begin(), g.folders.end(), [&](const std::wstring& f) { return samePath(f, folder); }))
+                g.folders.push_back(folder);
+            applyGameSettings(std::move(g));
+            gamesDialog_->update(catalog_ ? &*catalog_ : nullptr, gameSettings_);
+        };
+        cb.removeFolder = [this](const std::wstring& folder) {
+            GameSettings g = gameSettings_;
+            std::erase_if(g.folders, [&](const std::wstring& f) { return samePath(f, folder); });
+            applyGameSettings(std::move(g));
+            gamesDialog_->update(catalog_ ? &*catalog_ : nullptr, gameSettings_);
+        };
+        cb.rescan = [this] {
+            ensureCatalog();
+            gameWatcher_->rescan();
+        };
+        const auto instance = reinterpret_cast<HINSTANCE>(GetWindowLongPtrW(hwnd_, GWLP_HINSTANCE));
+        gamesDialog_ = std::make_unique<GamesDialog>(instance, std::move(cb));
+    }
+    ensureCatalog();
+    gamesDialog_->update(catalog_ ? &*catalog_ : nullptr, gameSettings_);
+    gamesDialog_->show(window_ ? window_->hwnd() : nullptr);
+}
+
+std::wstring TrayApp::gameNowText() const {
+    if (!gameSettings_.enabled) return L"Game mode is off.";
+    if (gameMode_.active() && !activeGameName_.empty()) {
+        if (gameMode_.leaving()) return L"Left " + activeGameName_ + L": restoring in a few seconds.";
+        const GamePending& p = *gameMode_.pending();
+        std::wstring back;
+        if (p.savedProfile) back = toWide(profileName(*p.savedProfile));
+        if (p.savedPower) back += (back.empty() ? L"" : L", ") + toWide(toString(*p.savedPower));
+        return L"Now: " + activeGameName_ + (back.empty() ? L" (already at these settings)" : L" · back to " + back + L" after");
+    }
+    if (!matcher_) return L"Reading the game list…";
+    if (focusedGame_ && gameSettings_.onlyOnAc && !onAcPower().value_or(true))
+        return focusedGame_->name + L" is in front, but on battery: no change (Only on AC).";
+    if (snapshot_ && snapshot_->fusion == ServiceState::Running)
+        return L"No game in front. Note: MyDell (FusionService) may switch the profile back.";
+    return L"No game in front.";
 }
 
 void CALLBACK TrayApp::foregroundHook(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD) {
@@ -462,6 +550,7 @@ void TrayApp::onForegroundChange() {
     if (g) focusedGame_ = *g;
     else focusedGame_.reset();
     evaluateGameMode();
+    if (window_ && window_->visible()) pushToWindow();  // the Games group's "Now" line
 }
 
 GameCurrent TrayApp::gameCurrent() const {

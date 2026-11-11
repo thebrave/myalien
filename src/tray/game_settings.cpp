@@ -41,6 +41,27 @@ std::optional<PowerMode> powerFromCode(std::optional<DWORD> c) {
     }
 }
 
+std::vector<std::wstring> readList(const wchar_t* name) {
+    std::vector<std::wstring> out;
+    DWORD bytes = 0;
+    if (RegGetValueW(HKEY_CURRENT_USER, kKey, name, RRF_RT_REG_MULTI_SZ, nullptr, nullptr, &bytes) != ERROR_SUCCESS)
+        return out;
+    std::wstring buf(bytes / sizeof(wchar_t) + 2, L'\0');
+    if (RegGetValueW(HKEY_CURRENT_USER, kKey, name, RRF_RT_REG_MULTI_SZ, nullptr, buf.data(), &bytes) != ERROR_SUCCESS)
+        return out;
+    for (const wchar_t* p = buf.c_str(); *p; p += wcslen(p) + 1) out.emplace_back(p);
+    return out;
+}
+
+bool writeList(HKEY k, const wchar_t* name, const std::vector<std::wstring>& items) {
+    std::wstring buf;
+    for (const auto& s : items)
+        if (!s.empty()) buf += s + L'\0';
+    buf += L'\0';
+    return RegSetValueExW(k, name, 0, REG_MULTI_SZ, reinterpret_cast<const BYTE*>(buf.data()),
+                          static_cast<DWORD>(buf.size() * sizeof(wchar_t))) == ERROR_SUCCESS;
+}
+
 DWORD profileCode(std::optional<uint8_t> p) { return p ? *p : kNone; }
 
 std::optional<uint8_t> profileFromCode(std::optional<DWORD> c) {
@@ -57,6 +78,8 @@ GameSettings loadGameSettings() {
     s.notified = readDword(kKey, L"Notified").value_or(0) != 0;
     if (const auto v = readDword(kKey, L"PowerMode")) s.targets.power = powerFromCode(v);
     if (const auto v = readDword(kKey, L"Profile")) s.targets.profile = profileFromCode(v);
+    s.folders = readList(L"Folders");
+    s.excluded = readList(L"Excluded");
     return s;
 }
 
@@ -66,7 +89,8 @@ bool saveGameSettings(const GameSettings& s) {
         return false;
     const bool ok = writeDword(k, L"Enabled", s.enabled) && writeDword(k, L"OnlyOnAc", s.onlyOnAc) &&
                     writeDword(k, L"Notified", s.notified) && writeDword(k, L"PowerMode", powerCode(s.targets.power)) &&
-                    writeDword(k, L"Profile", profileCode(s.targets.profile));
+                    writeDword(k, L"Profile", profileCode(s.targets.profile)) && writeList(k, L"Folders", s.folders) &&
+                    writeList(k, L"Excluded", s.excluded);
     RegCloseKey(k);
     return ok;
 }

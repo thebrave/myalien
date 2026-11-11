@@ -536,7 +536,7 @@ void scanGameBar(Collector& c) {
 }
 
 // Folders that are never one game's directory, even if a catalog says so.
-bool isTooBroad(const std::wstring& dir) {
+bool tooBroad(const std::wstring& dir) {
     if (dir.find(L'\\', 2) == std::wstring::npos) return true;  // drive root
     for (const wchar_t* v : {L"%ProgramFiles%", L"%ProgramFiles(x86)%", L"%SystemRoot%", L"%USERPROFILE%",
                              L"%ProgramData%", L"%LOCALAPPDATA%", L"%APPDATA%"}) {
@@ -555,7 +555,7 @@ bool under(const std::wstring& path, const std::wstring& dir) {
 std::vector<Game> finish(std::vector<Game> all) {
     std::vector<Game> out;
     for (auto& g : all) {
-        if (g.source != Source::GameBar && isTooBroad(g.dir)) continue;
+        if (g.source != Source::GameBar && tooBroad(g.dir)) continue;
         if (g.source == Source::GameBar) {
             const bool covered = std::any_of(out.begin(), out.end(), [&](const Game& o) {
                 return o.source == Source::GameBar ? ieq(o.exe, g.exe) : under(g.exe, o.dir);
@@ -649,6 +649,33 @@ Catalog scan() {
     }
     cat.milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     return cat;
+}
+
+const std::wstring& gameKey(const Game& g) { return g.source == Source::GameBar ? g.exe : g.dir; }
+
+bool isTooBroad(const std::wstring& dir) { return tooBroad(normalizePath(dir)); }
+
+std::vector<Game> applyUserChoices(const std::vector<Game>& scanned, const std::vector<std::wstring>& folders,
+                                   const std::vector<std::wstring>& excluded) {
+    auto isExcluded = [&](const std::wstring& key) {
+        return std::any_of(excluded.begin(), excluded.end(), [&](const std::wstring& e) { return ieq(e, key); });
+    };
+    std::vector<Game> out;
+    for (const auto& g : scanned)
+        if (!isExcluded(gameKey(g))) out.push_back(g);
+    for (const auto& f : folders) {
+        const std::wstring dir = normalizePath(f);
+        if (dir.empty() || tooBroad(dir)) continue;
+        if (std::any_of(out.begin(), out.end(), [&](const Game& g) { return g.source != Source::GameBar && ieq(g.dir, dir); }))
+            continue;
+        Game g;
+        g.source = Source::Manual;
+        g.dir = dir;
+        g.name = lastComponent(dir);
+        out.push_back(std::move(g));
+    }
+    std::sort(out.begin(), out.end(), [](const Game& a, const Game& b) { return icompare(a.name, b.name) == CSTR_LESS_THAN; });
+    return out;
 }
 
 Matcher::Matcher(std::vector<Game> games) {

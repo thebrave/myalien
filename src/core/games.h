@@ -50,6 +50,18 @@ Catalog scan();
 // Full path, backslashes, no trailing separator. Empty for an empty input.
 std::wstring normalizePath(std::wstring path);
 
+// What identifies a game for the user's choices: its exe for Game Bar entries, else its folder.
+const std::wstring& gameKey(const Game& g);
+
+// A drive root or a shared system folder (Program Files, Windows, the profile, ...): never a
+// single game's folder.
+bool isTooBroad(const std::wstring& dir);
+
+// The games the matcher should use: the scanned ones minus `excluded` keys, plus each folder
+// in `folders` as a Manual game (skipped when already listed or too broad). Sorted by name.
+std::vector<Game> applyUserChoices(const std::vector<Game>& scanned, const std::vector<std::wstring>& folders,
+                                   const std::vector<std::wstring>& excluded);
+
 // Decides whether a process image belongs to a game. Pure: no I/O.
 //  * Launcher entries match any image under their directory.
 //  * Game Bar entries match their exact executable.

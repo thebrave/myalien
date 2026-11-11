@@ -5,6 +5,7 @@
 // Plain Win32 controls, created in code, laid out in 96-DPI units scaled to the window's DPI.
 
 #include "core/snapshot.h"
+#include "tray/game_settings.h"
 
 #include <windows.h>
 
@@ -33,7 +34,24 @@ public:
     void update(const Snapshot* s, const std::string& error, bool busy, uint8_t lastRegular);
     void setStatusText(const std::wstring& text);
 
+    // Games group: current settings, the "Now:" line, and the number of known games (-1 = the
+    // list has not been read yet). Works without the service (the power mode needs none).
+    struct GameView {
+        GameSettings settings;
+        std::wstring now;
+        int games = -1;
+    };
+    void updateGames(const GameView& v);
+    // Called when the user changes a game mode setting, or presses "Games…".
+    void setGameCallbacks(std::function<void(const GameSettings&)> changed, std::function<void()> openGames) {
+        gameChanged_ = std::move(changed);
+        openGames_ = std::move(openGames);
+    }
+
 private:
+    void refreshGames();
+    void onGameCommand(int id, int code);
+
     static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
     LRESULT handle(UINT msg, WPARAM wp, LPARAM lp);
 
@@ -64,6 +82,11 @@ private:
     std::vector<uint8_t> profileItems_;      // combo index -> profile id
     bool profileListStuck_ = false;          // G-Mode item currently labelled "(stuck)"
     std::vector<std::string> chargeItems_;   // combo index -> BIOS charge mode
+
+    GameView games_;
+    std::vector<std::optional<uint8_t>> gameProfileItems_;  // combo index -> target (nullopt = unchanged)
+    std::function<void(const GameSettings&)> gameChanged_;
+    std::function<void()> openGames_;
 };
 
 }  // namespace myalien::tray

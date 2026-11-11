@@ -5,6 +5,8 @@
 #include "tray/game_mode.h"
 
 #include <optional>
+#include <string>
+#include <vector>
 
 namespace myalien::tray {
 
@@ -13,6 +15,8 @@ struct GameSettings {
     GameTargets targets;   // default: Best performance + G-Mode
     bool onlyOnAc = true;  // G-Mode on battery drains it fast
     bool notified = false; // the one-time "game mode acted" notification was shown
+    std::vector<std::wstring> folders;   // added with "Add folder…" (games no catalog lists)
+    std::vector<std::wstring> excluded;  // unticked in the Games dialog (games::gameKey)
 };
 
 GameSettings loadGameSettings();

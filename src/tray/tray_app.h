@@ -9,6 +9,7 @@
 #include "tray/game_mode.h"
 #include "tray/game_settings.h"
 #include "tray/game_watch.h"
+#include "tray/games_dialog.h"
 #include "tray/status_window.h"
 #include "tray/worker.h"
 
@@ -47,6 +48,11 @@ private:
     GameCurrent gameCurrent() const;
     void restoreGameModeOnExit();
     std::wstring gameTargetsText() const;
+    void applyGameSettings(GameSettings s);  // from the menu or the status window
+    void rebuildMatcher();                   // catalog + the user's folders and exclusions
+    void openGamesDialog();
+    std::wstring gameNowText() const;
+    void ensureCatalog();                    // the watcher also runs while game mode is off, for the Games window
     static void CALLBACK foregroundHook(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD);
     static TrayApp* instance_;  // for the WinEvent callback (one TrayApp per process)
 
@@ -67,7 +73,9 @@ private:
     GameSettings gameSettings_;
     GameModeController gameMode_;
     std::unique_ptr<GameWatcher> gameWatcher_;
+    std::optional<games::Catalog> catalog_;  // last scan, as found (the Games window lists it)
     std::optional<games::Matcher> matcher_;  // empty until the first scan arrives
+    std::unique_ptr<GamesDialog> gamesDialog_;
     HWINEVENTHOOK foregroundHook_ = nullptr;
     std::wstring foregroundImage_;
     std::optional<games::Game> focusedGame_;  // the foreground process is this game

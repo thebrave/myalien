@@ -136,6 +136,28 @@ int main() {
         expect(games::normalizePath(L"") .empty(), "normalizePath: empty");
     }
 
+    // --- User choices (exclusions, manual folders) ---
+    {
+        using games::Source;
+        const std::vector<games::Game> scanned{
+            game(Source::Steam, L"Zeta", L"D:\\Steam\\common\\Zeta"),
+            game(Source::GameBar, L"Edge", L"C:\\Edge", L"C:\\Edge\\msedge.exe"),
+            game(Source::Epic, L"Alpha", L"C:\\Games\\Alpha"),
+        };
+        const auto out = games::applyUserChoices(
+            scanned, {L"C:\\Games\\Beta\\", L"c:\\games\\alpha", L"C:\\", L"C:\\Windows"},
+            {L"c:\\edge\\MSEDGE.EXE", L"D:\\Other"});
+        expect(out.size() == 3, "choices: one excluded, one manual added, duplicates and broad folders skipped");
+        expect(out.size() == 3 && out[0].name == L"Alpha" && out[1].name == L"Beta" && out[2].name == L"Zeta",
+               "choices: sorted by name");
+        expect(out.size() == 3 && out[1].source == Source::Manual && out[1].dir == L"C:\\Games\\Beta",
+               "choices: manual folder normalized");
+        expect(games::gameKey(scanned[1]) == L"C:\\Edge\\msedge.exe" && games::gameKey(scanned[0]) == L"D:\\Steam\\common\\Zeta",
+               "gameKey: exe for Game Bar, folder otherwise");
+        expect(games::isTooBroad(L"C:\\") && games::isTooBroad(L"C:\\Windows\\") && !games::isTooBroad(L"C:\\Games\\X"),
+               "isTooBroad");
+    }
+
     if (failures == 0) std::puts("games_test: all passed");
     return failures == 0 ? 0 : 1;
 }
