@@ -33,6 +33,10 @@ const char* toString(PowerMode m);
 // Windows power mode slider (effective power overlay scheme).
 PowerMode windowsPowerMode();
 
+// Sets the power mode slider (BestEfficiency, Balanced or BestPerformance) for the current power
+// source, as Settings does. Runs as the calling user. Returns a Win32 error code (0 = success).
+unsigned long setWindowsPowerMode(PowerMode m);
+
 // GetSystemPowerStatus: AC present?
 std::optional<bool> onAcPower();
 

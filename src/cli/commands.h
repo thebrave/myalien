@@ -11,5 +11,7 @@ int cmdProfile(std::span<const std::wstring_view> args);
 int cmdGMode(std::span<const std::wstring_view> args);
 int cmdBattery(std::span<const std::wstring_view> args);
 int cmdFan(std::span<const std::wstring_view> args);
+int cmdGames(std::span<const std::wstring_view> args);
+int cmdPowerMode(std::span<const std::wstring_view> args);
 
 }  // namespace myalien::cli

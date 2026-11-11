@@ -15,3 +15,7 @@ add_executable(thermal_state_test thermal_state_test.cpp ${PROJECT_SOURCE_DIR}/s
 target_include_directories(thermal_state_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(thermal_state_test PRIVATE myalien-core)
 add_test(NAME thermal_state COMMAND thermal_state_test)
+
+add_executable(games_test games_test.cpp)
+target_link_libraries(games_test PRIVATE myalien-core)
+add_test(NAME games COMMAND games_test)

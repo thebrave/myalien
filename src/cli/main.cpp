@@ -32,6 +32,10 @@ void printUsage() {
         "  battery mode <mode>   Set the charge mode: adaptive | standard | express | primacuse\n"
         "  battery mode custom <start> <stop>\n"
         "                        Charge only between start % and stop % (e.g. 50 80)\n"
+        "  powermode             Show the Windows power mode\n"
+        "  powermode set <mode>  Set it: efficiency | balanced | performance\n"
+        "  games                 List installed games (launcher catalogs, Game Bar)\n"
+        "  games watch           Report whether each foreground window is a game\n"
         "  help                  Show this help\n"
         "\n"
         "Dell firmware interfaces (thermal, BIOS settings) require an elevated prompt.\n",
@@ -54,6 +58,8 @@ int wmain(int argc, wchar_t** argv) {
         if (cmd == L"gmode") return myalien::cli::cmdGMode(rest);
         if (cmd == L"battery") return myalien::cli::cmdBattery(rest);
         if (cmd == L"fan") return myalien::cli::cmdFan(rest);
+        if (cmd == L"games") return myalien::cli::cmdGames(rest);
+        if (cmd == L"powermode") return myalien::cli::cmdPowerMode(rest);
         if (cmd == L"help" || cmd == L"--help" || cmd == L"-h" || cmd == L"/?") {
             printUsage();
             return 0;

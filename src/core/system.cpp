@@ -110,6 +110,24 @@ PowerMode windowsPowerMode() {
     return result;
 }
 
+unsigned long setWindowsPowerMode(PowerMode m) {
+    GUID g{};
+    switch (m) {
+        case PowerMode::BestEfficiency: g = kOverlayBestEfficiency; break;
+        case PowerMode::Balanced: g = kOverlayBalanced; break;
+        case PowerMode::BestPerformance: g = kOverlayBestPerformance; break;
+        default: return ERROR_INVALID_PARAMETER;
+    }
+    // Exported by powrprof.dll but not declared in the SDK; takes the GUID by value.
+    using Fn = DWORD(WINAPI*)(GUID);
+    HMODULE mod = LoadLibraryExW(L"powrprof.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (!mod) return GetLastError();
+    DWORD rc = ERROR_PROC_NOT_FOUND;
+    if (auto fn = reinterpret_cast<Fn>(GetProcAddress(mod, "PowerSetActiveOverlayScheme"))) rc = fn(g);
+    FreeLibrary(mod);
+    return rc;
+}
+
 std::optional<bool> onAcPower() {
     SYSTEM_POWER_STATUS s{};
     if (!GetSystemPowerStatus(&s) || s.ACLineStatus == 255) return std::nullopt;

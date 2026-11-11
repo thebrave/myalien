@@ -200,6 +200,62 @@ If a BIOS admin password is set, writes are refused (password support is not imp
 
 ---
 
+## `powermode`
+
+The Windows power mode slider (Settings > System > Power > Power mode). It is a per-user Windows
+setting, not a firmware one: the command runs as you, never through the service, and needs no
+elevation. The value applies to the current power source (AC or battery), like the Settings slider.
+
+```
+myalien powermode
+myalien powermode set <efficiency | balanced | performance>
+```
+
+```
+Before     : Balanced (on AC)
+After      : Best performance
+OK
+```
+
+---
+
+## `games`
+
+Game catalog for game mode ([game-mode.md](game-mode.md)). Runs as you, never through the
+service. It reads launcher catalogs (Steam, Epic Games, Ubisoft Connect, Battle.net, GOG Galaxy,
+EA app, Riot Client, Rockstar, Xbox app, Amazon Games) and Game Bar's list of games
+(`GameConfigStore`). Nothing walks the disk: only known registry keys and launcher files are
+read (~20 ms warm).
+
+```
+myalien games          List the games and whether the foreground window is one
+myalien games watch    Print each foreground change and the verdict (Ctrl+C to stop)
+```
+
+```
+Scanned in 18 ms: 13 games
+
+  Steam            8
+  Epic Games       0
+  GOG Galaxy       not installed
+  ...
+  Game Bar         3
+
+Caves of Qud                         Steam            C:\Program Files (x86)\Steam\steamapps\common\Caves of Qud
+Red Dead Redemption                  Game Bar         C:\Games\Red Dead Redemption\RDR.exe
+...
+
+Foreground: C:\Users\…\Microsoft VS Code\Code.exe
+    -> not a game
+```
+
+A launcher game matches any process under its install folder (prelaunchers, the real exe); a
+Game Bar entry matches only its own executable. Launcher clients and crash handlers never match.
+`watch` uses the same event as the tray will (`EVENT_SYSTEM_FOREGROUND`), so it costs nothing
+while idle.
+
+---
+
 ## `help`
 
 ```
