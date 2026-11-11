@@ -112,7 +112,10 @@ CallResult call(std::string_view request, DWORD timeoutMs) {
         return result;
     }
 
-    UniqueHandle pipe(CreateFileW(kPipeName, GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+    // Not GENERIC_WRITE: it asks for FILE_CREATE_PIPE_INSTANCE too, which the service does not
+    // grant to users. FILE_WRITE_ATTRIBUTES is what SetNamedPipeHandleState needs.
+    UniqueHandle pipe(CreateFileW(kPipeName, GENERIC_READ | FILE_WRITE_DATA | FILE_WRITE_ATTRIBUTES, 0, nullptr,
+                                  OPEN_EXISTING,
                                   FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION, nullptr));
     if (pipe.get() == INVALID_HANDLE_VALUE) {
         result.error = GetLastError() == ERROR_PIPE_BUSY ? CallError::Timeout : CallError::NotRunning;

@@ -42,7 +42,21 @@ void ChargeCache::apply(Snapshot& s) const {
 
 ChargeActionResult ChargeCache::write(std::string_view mode, std::optional<std::pair<std::string, std::string>> range) {
     std::lock_guard refreshLock(refreshMutex_);  // no refresh may interleave with the writes
-    ChargeActionResult r = actSetChargeMode(mode, std::move(range));
+    if (const uint64_t wait = budget_.waitMs(GetTickCount64()); wait > 0) {
+        ChargeActionResult refused;
+        refused.output.fail(exitcode::Error,
+                            std::format("Too many charge-setting changes in a short time. Try again in {} s.",
+                                        (wait + 999) / 1000));
+        return refused;
+    }
+    ChargeActionResult r;
+    try {
+        r = actSetChargeMode(mode, std::move(range));
+    } catch (...) {
+        budget_.spend(1, GetTickCount64());  // the count is lost with the result: assume one write
+        throw;
+    }
+    budget_.spend(r.writes, GetTickCount64());
     if (r.after) {
         std::lock_guard lock(dataMutex_);
         if (valid_ && !data_.chargeError) {

@@ -22,9 +22,12 @@ namespace myalien::svc {
 
 namespace {
 
-// SYSTEM and Administrators: full; interactive users: read/write (connect + exchange messages).
+// SYSTEM and Administrators: full; interactive users: connect + exchange messages.
 // Protected DACL (P): nothing inherited.
-constexpr wchar_t kPipeSddl[] = L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)";
+// The interactive mask is FILE_GENERIC_READ | FILE_WRITE_DATA | FILE_WRITE_ATTRIBUTES, not GRGW:
+// generic write includes FILE_APPEND_DATA, which on a pipe is FILE_CREATE_PIPE_INSTANCE (the right
+// to serve the pipe name). Clients therefore open with exactly these rights (ipc::call).
+constexpr wchar_t kPipeSddl[] = L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x12018b;;;IU)";
 constexpr DWORD kIoTimeoutMs = 3000;
 
 struct HandleCloser {

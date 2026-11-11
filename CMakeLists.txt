@@ -25,6 +25,11 @@ add_compile_definitions(
 
 add_compile_options(/W4 /permissive- /utf-8 /EHsc /Zc:__cplusplus /MP)
 
+# Imported DLLs are loaded from System32 only (LOAD_LIBRARY_SEARCH_SYSTEM32), never from the
+# executable's own folder: the tray and the CLI may be run from a user-writable folder such as
+# Downloads, where a planted version.dll or winsqlite3.dll would otherwise be loaded first.
+add_link_options(/DEPENDENTLOADFLAG:0x800)
+
 enable_testing()
 
 add_subdirectory(src/core)

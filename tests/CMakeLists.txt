@@ -25,3 +25,8 @@ add_executable(game_mode_test game_mode_test.cpp ${PROJECT_SOURCE_DIR}/src/tray/
 target_include_directories(game_mode_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(game_mode_test PRIVATE myalien-core)
 add_test(NAME game_mode COMMAND game_mode_test)
+
+# BIOS write budget of the service (header-only, pure logic).
+add_executable(write_budget_test write_budget_test.cpp)
+target_include_directories(write_budget_test PRIVATE ${PROJECT_SOURCE_DIR}/src)
+add_test(NAME write_budget COMMAND write_budget_test)

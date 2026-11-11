@@ -62,10 +62,12 @@ ActionOutput actSetGMode(bool on, std::string_view profileWhenOff = "balanced");
 ActionOutput actSetFanBoost(std::string_view fans, std::string_view boost);
 
 // mode: adaptive | standard | express | primacuse | ac | custom (any case, or BIOS spelling);
-// start/stop only with custom. On success, `after` holds the settings read back.
+// start/stop only with custom. On success, `after` holds the settings read back. `writes` counts
+// the BIOS attribute writes attempted, whatever their outcome.
 struct ChargeActionResult {
     ActionOutput output;
     std::optional<ChargeSettings> after;
+    unsigned writes = 0;
 };
 ChargeActionResult actSetChargeMode(std::string_view mode, std::optional<std::pair<std::string, std::string>> range);
 

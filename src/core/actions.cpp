@@ -304,6 +304,7 @@ ChargeActionResult actSetChargeMode(std::string_view modeText, std::optional<std
     // One attribute at a time, each read back before the next: the thresholds only become
     // writable once the BIOS reports the Custom mode.
     for (const auto& w : plan) {
+        ++result.writes;
         bios.set(w.name, w.value);
         std::wstring got;
         if (std::wstring_view(w.name) == attr::PrimaryBattChargeCfg) {

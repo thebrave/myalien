@@ -130,8 +130,11 @@ directory. Automatic start; restart after 5 s on the first two failures.
 **Pipe.** `\\.\pipe\MyAlien`, one instance, message mode, overlapped I/O, every wait bounded
 (3 s per I/O) and interruptible by the stop event.
 
-* DACL `D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)`: SYSTEM and Administrators full access,
-  interactive users read/write; remote clients rejected (`PIPE_REJECT_REMOTE_CLIENTS`).
+* DACL `D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x12018b;;;IU)`: SYSTEM and Administrators full access,
+  interactive users read + write data + write attributes; remote clients rejected
+  (`PIPE_REJECT_REMOTE_CLIENTS`). Generic write is not granted: it carries
+  `FILE_CREATE_PIPE_INSTANCE`. Clients open the pipe with exactly these rights; a CLI or tray built
+  before this change asks for generic write and is refused by the service.
 * Created with `FILE_FLAG_FIRST_PIPE_INSTANCE` and the handle is reused between clients, so no
   other process can take the name while the service runs.
 * One request per connection; requests are capped at 4 KB, responses at 256 KB.
@@ -153,7 +156,10 @@ tokenised strictly (at most 5 tokens of at most 32 printable ASCII characters) a
 the same `act*` functions the elevated CLI calls: they validate every value against what the
 firmware reports and refuse other machines. Each write is logged with the caller's
 `DOMAIN\user` and PID (read by impersonating the client at identification level). Charge writes
-hold the cache's refresh lock, so no background BIOS read interleaves with them.
+hold the cache's refresh lock, so no background BIOS read interleaves with them. They also go
+through a write budget (`write_budget.h`): 8 BIOS attribute writes in a burst, then one per minute;
+beyond that the request is refused without touching the firmware. Requests that change nothing
+cost nothing.
 
 **Charge-settings cache** (`charge_cache.h/.cpp`). Reading Dell BIOS attributes costs ~1.5 s per
 attribute class on the G15 5520 (the provider reads every attribute from the BIOS), ~4.5 s for the

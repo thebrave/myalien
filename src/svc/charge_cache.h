@@ -11,6 +11,7 @@
 
 #include "core/actions.h"
 #include "core/snapshot.h"
+#include "svc/write_budget.h"
 
 #include <windows.h>
 
@@ -31,10 +32,12 @@ public:
     void apply(Snapshot& s) const;
 
     // Runs a charge-mode write with refreshes held off, then updates the cache from the values
-    // the action read back, so STATUS reflects the change at once.
+    // the action read back, so STATUS reflects the change at once. Refused (exit code Error,
+    // nothing written) when the write budget is used up.
     ChargeActionResult write(std::string_view mode, std::optional<std::pair<std::string, std::string>> range);
 
 private:
+    WriteBudget budget_;          // guarded by refreshMutex_
     std::mutex refreshMutex_;     // one BIOS read at a time
     mutable std::mutex dataMutex_;
     Snapshot data_;               // only the charge fields are used
