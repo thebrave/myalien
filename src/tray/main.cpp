@@ -1,5 +1,6 @@
 // myalien-tray.exe - MyAlien tray icon (runs as the logged-in user, talks to the MyAlien service).
 
+#include "tray/theme.h"
 #include "tray/tray_app.h"
 
 #include <windows.h>
@@ -11,8 +12,9 @@
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-    INITCOMMONCONTROLSEX icc{sizeof(icc), ICC_STANDARD_CLASSES | ICC_BAR_CLASSES | ICC_UPDOWN_CLASS};
+    INITCOMMONCONTROLSEX icc{sizeof(icc), ICC_STANDARD_CLASSES | ICC_BAR_CLASSES | ICC_UPDOWN_CLASS | ICC_LINK_CLASS};
     InitCommonControlsEx(&icc);
+    myalien::tray::theme::initApp();  // dark menus and windows when Windows uses the dark app theme
 
     // One tray icon per user session.
     HANDLE mutex = CreateMutexW(nullptr, TRUE, L"Local\\MyAlienTray");

@@ -3,9 +3,12 @@
 #include "core/awcc.h"
 #include "core/error.h"
 #include "tray/icon.h"
+#include "tray/theme.h"
+#include "tray/about.h"
 #include "tray/requests.h"
 
 #include <commctrl.h>
+#include <shellapi.h>
 
 #include <algorithm>
 #include <cctype>
@@ -61,6 +64,7 @@ enum Id : int {
     IDC_GM_NOW,
     IDC_GM_GAMES,
     IDC_STATUS,
+    IDC_LINK,
 };
 
 bool isGameControl(int id) { return id >= IDC_GRP_GAMES && id <= IDC_GM_GAMES; }
@@ -130,7 +134,9 @@ constexpr ControlDef kControls[] = {
     {IDC_GM_AC, WC_BUTTONW, L"Only on AC", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, 310, 504, 94, 22},
     {IDC_GM_GAMES, WC_BUTTONW, L"Games…", kButton, 310, 532, 90, 26},
     {IDC_GM_NOW, WC_STATICW, L"", kStaticEllipsis, 24, 572, 376, 20},
-    {IDC_STATUS, WC_STATICW, L"", kStaticEllipsis, 12, 608, 396, 20},
+    {IDC_STATUS, WC_STATICW, L"", kStaticEllipsis, 12, 608, 300, 20},
+    {IDC_LINK, WC_LINK, L"<a href=\"" MYALIEN_PROJECT_URL L"\">Project page</a>",
+     WS_CHILD | WS_VISIBLE | WS_TABSTOP | LWS_TRANSPARENT | LWS_RIGHT, 316, 608, 92, 20},
 };
 
 std::string lower(std::string s) {
@@ -172,7 +178,7 @@ void StatusWindow::create() {
     wc.hIconSm = appIcon(instance_, true);
     RegisterClassExW(&wc);  // fails harmlessly if already registered
 
-    const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;  // close only: no greyed maximize box
     hwnd_ = CreateWindowExW(0, kClassName, L"MyAlien", style, CW_USEDEFAULT, CW_USEDEFAULT, 100, 100, nullptr, nullptr,
                             instance_, this);
     if (!hwnd_) return;
@@ -191,6 +197,8 @@ void StatusWindow::create() {
         SendMessageW(item(IDC_GM_POWER), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
     SendMessageW(item(IDC_START_UD), UDM_SETRANGE32, 50, 95);
     SendMessageW(item(IDC_STOP_UD), UDM_SETRANGE32, 55, 100);
+    SetWindowTextW(item(IDC_STATUS), L"MyAlien " MYALIEN_VERSION);  // until the first change
+    theme::apply(hwnd_);
 
     applyFont();
     layout();
@@ -243,7 +251,7 @@ void StatusWindow::refreshControls() {
 
     if (!connected) {
         for (const auto& c : kControls)
-            if (!isGameControl(c.id)) EnableWindow(item(c.id), FALSE);
+            if (!isGameControl(c.id) && c.id != IDC_LINK) EnableWindow(item(c.id), FALSE);
         SetWindowTextW(item(IDC_STATUS), (L"MyAlien service: " + toWide(error_.empty() ? std::string("connecting…") : error_)).c_str());
         updating_ = false;
         refreshGames();
@@ -518,6 +526,27 @@ LRESULT StatusWindow::handle(UINT msg, WPARAM wp, LPARAM lp) {
         case WM_HSCROLL:
             if (lp) onScroll(reinterpret_cast<HWND>(lp));
             return 0;
+        case WM_NOTIFY: {  // "Project page" link
+            const auto* hdr = reinterpret_cast<const NMHDR*>(lp);
+            if (hdr->idFrom == IDC_LINK && (hdr->code == NM_CLICK || hdr->code == NM_RETURN))
+                ShellExecuteW(hwnd_, L"open", reinterpret_cast<const NMLINK*>(lp)->item.szUrl, nullptr, nullptr,
+                              SW_SHOWNORMAL);
+            return 0;
+        }
+        case WM_ERASEBKGND:
+            return theme::eraseBackground(hwnd_, reinterpret_cast<HDC>(wp)) ? 1 : 0;
+        case WM_CTLCOLORSTATIC:
+        case WM_CTLCOLORBTN:
+        case WM_CTLCOLOREDIT:
+        case WM_CTLCOLORLISTBOX:
+            if (HBRUSH b = theme::controlColor(msg, reinterpret_cast<HDC>(wp))) return reinterpret_cast<LRESULT>(b);
+            break;
+        case WM_SETTINGCHANGE:
+            if (theme::isThemeChange(msg, lp)) {
+                theme::refresh();
+                theme::apply(hwnd_);
+            }
+            break;
         case WM_CLOSE:  // the tray keeps running: just hide
             ShowWindow(hwnd_, SW_HIDE);
             return 0;

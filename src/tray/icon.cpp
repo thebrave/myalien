@@ -33,6 +33,11 @@ Badge badgeFor(std::optional<uint8_t> p) {
 }  // namespace
 
 HICON makeProfileIcon(std::optional<uint8_t> profile, int size) {
+    // No profile to show (service unreachable, thermal data unavailable): the application icon.
+    if (!profile)
+        if (auto h = static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1), IMAGE_ICON, size,
+                                                   size, 0)))
+            return h;  // not shared: the caller destroys it like a badge
     const Badge b = badgeFor(profile);
 
     HDC screen = GetDC(nullptr);

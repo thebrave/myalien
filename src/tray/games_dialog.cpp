@@ -2,6 +2,7 @@
 
 #include "core/error.h"
 #include "tray/icon.h"
+#include "tray/theme.h"
 
 #include <commctrl.h>
 #include <shobjidl.h>
@@ -124,6 +125,7 @@ void GamesDialog::create(HWND owner) {
     applyFont();
     layout();
     fill();
+    theme::apply(hwnd_);
 }
 
 void GamesDialog::applyFont() {
@@ -342,6 +344,20 @@ LRESULT GamesDialog::handle(UINT msg, WPARAM wp, LPARAM lp) {
             if (callbacks_.setIncluded) callbacks_.setIncluded(games::gameKey(row.game), included);
             return 0;
         }
+        case WM_ERASEBKGND:
+            return theme::eraseBackground(hwnd_, reinterpret_cast<HDC>(wp)) ? 1 : 0;
+        case WM_CTLCOLORSTATIC:
+        case WM_CTLCOLORBTN:
+        case WM_CTLCOLOREDIT:
+        case WM_CTLCOLORLISTBOX:
+            if (HBRUSH b = theme::controlColor(msg, reinterpret_cast<HDC>(wp))) return reinterpret_cast<LRESULT>(b);
+            break;
+        case WM_SETTINGCHANGE:
+            if (theme::isThemeChange(msg, lp)) {
+                theme::refresh();
+                theme::apply(hwnd_);
+            }
+            break;
         case WM_CLOSE:
             ShowWindow(hwnd_, SW_HIDE);
             return 0;

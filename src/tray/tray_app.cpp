@@ -4,9 +4,11 @@
 #include "core/awcc.h"
 #include "core/error.h"
 #include "core/ipc.h"
+#include "tray/about.h"
 #include "tray/autostart.h"
 #include "tray/icon.h"
 #include "tray/requests.h"
+#include "tray/theme.h"
 
 #include <windowsx.h>
 
@@ -33,6 +35,7 @@ constexpr UINT ID_AUTOSTART = 1600;
 constexpr UINT ID_REFRESH = 1601;
 constexpr UINT ID_OPEN = 1602;
 constexpr UINT ID_GAMEMODE = 1603;
+constexpr UINT ID_ABOUT = 1604;
 constexpr UINT ID_EXIT = 1699;
 
 std::string lower(std::string s) {
@@ -76,6 +79,7 @@ int TrayApp::run(HINSTANCE instance) {
     // A hidden top-level window (not message-only: those do not receive "TaskbarCreated").
     hwnd_ = CreateWindowExW(0, kClassName, L"MyAlien", WS_OVERLAPPED, 0, 0, 0, 0, nullptr, nullptr, instance, this);
     if (!hwnd_) return 1;
+    theme::apply(hwnd_);  // owner of the popup menu: lets it turn dark
 
     worker_ = std::make_unique<Worker>(hwnd_);
     window_ = std::make_unique<StatusWindow>(
@@ -187,6 +191,13 @@ LRESULT TrayApp::handle(UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_COMMAND:
             onCommand(LOWORD(wp));
+            return 0;
+
+        case WM_SETTINGCHANGE:  // light / dark switch: menus follow
+            if (theme::isThemeChange(msg, lp)) {
+                theme::refresh();
+                theme::apply(hwnd_);
+            }
             return 0;
 
         case WM_DESTROY:
@@ -374,6 +385,7 @@ void TrayApp::showMenu(POINT at) {
     SetMenuDefaultItem(menu, ID_OPEN, FALSE);
     AppendMenuW(menu, MF_STRING | (autostartEnabled() ? MF_CHECKED : MF_UNCHECKED), ID_AUTOSTART, L"Start with Windows");
     AppendMenuW(menu, MF_STRING, ID_REFRESH, L"Refresh");
+    AppendMenuW(menu, MF_STRING, ID_ABOUT, L"About MyAlien…");
     AppendMenuW(menu, MF_STRING, ID_EXIT, L"Exit");
 
     // Standard tray-menu dance: foreground first so the menu closes when clicking elsewhere.
@@ -393,6 +405,11 @@ void TrayApp::onCommand(UINT id) {
         GameSettings g = gameSettings_;
         g.enabled = !g.enabled;
         applyGameSettings(std::move(g));
+        return;
+    }
+    if (id == ID_ABOUT) {
+        showAbout(window_ && window_->visible() ? window_->hwnd() : nullptr,
+                  reinterpret_cast<HINSTANCE>(GetWindowLongPtrW(hwnd_, GWLP_HINSTANCE)));
         return;
     }
     if (id == ID_REFRESH) {
