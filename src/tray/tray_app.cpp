@@ -200,6 +200,11 @@ LRESULT TrayApp::handle(UINT msg, WPARAM wp, LPARAM lp) {
             }
             return 0;
 
+        case WM_CLOSE:  // sent by the installer before it replaces or removes the tray
+            restoreGameModeOnExit();
+            DestroyWindow(hwnd_);
+            return 0;
+
         case WM_DESTROY:
             if (iconAdded_) {
                 NOTIFYICONDATAW nid{sizeof(nid)};

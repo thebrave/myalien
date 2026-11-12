@@ -1,0 +1,9 @@
+#define MYALIEN_RC_DESCRIPTION "MyAlien setup"
+#define MYALIEN_RC_FILENAME "myalien-setup.exe"
+#include "version.rc2"
+
+// Payload: the three programs, found through the include path set in src/setup/CMakeLists.txt
+// (each target's output folder for the configuration being built).
+101 RCDATA "myalien-svc.exe"
+102 RCDATA "myalien-tray.exe"
+103 RCDATA "myalien.exe"
