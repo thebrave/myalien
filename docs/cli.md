@@ -324,7 +324,13 @@ Start `myalien-tray.exe` as yourself (not elevated); it needs the MyAlien servic
   counts games per launcher.
 * **Right click** opens the **menu**: profile (radio items), G-Mode on/off, battery level and health,
   **Charging** submenu, **Game mode: switch automatically while a game is in front** (above it, a game line when one is involved, as in the tooltip),
-  *Open MyAlien…*, **Start with Windows**, Refresh, Exit.
+  *Open MyAlien…*, **Start with Windows**, Refresh, *About MyAlien…*, Exit.
+* **Start with Windows**: for the installed copy, setup starts the tray at sign-in for every user;
+  this item turns it off or on for your account only (the same switch as Task Manager's Startup
+  page, no administrator rights). A copy run from a build folder uses a per-user startup entry
+  instead.
+* **Appearance**: the windows and the menu follow Windows' light or dark app mode, live. When the
+  service cannot be reached the icon shows the MyAlien logo.
 * **Game mode** (off by default, [game-mode.md](game-mode.md)): while a game from the catalog
   (`myalien games`) is in the foreground, the tray sets the thermal profile (through the service)
   and the Windows power mode (itself); default G-Mode + Best performance, on AC only. About 8 s

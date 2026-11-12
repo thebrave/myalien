@@ -14,10 +14,23 @@ Status (verified on a G15 5520):
 * **Windows service**: every command works without elevation, the last setting is kept across
   sleep / boot, and MyDell is detected and left alone.
 * **Tray icon** (`myalien-tray.exe`): profile badge, menu, and a status window for profile, G-Mode,
-  fan boost, charging and game mode.
+  fan boost, charging and game mode; light and dark theme.
 * **Game mode** (opt-in): while a game is in front, switch the thermal profile and the Windows power
   mode, then restore them ([docs/game-mode.md](docs/game-mode.md)).
-* Next: an installer (see [PLAN.md](PLAN.md)).
+* **Installer** (`myalien-setup.exe`): install, update and uninstall (see below).
+
+## Install
+
+Download `myalien-setup.exe` from the [releases](https://github.com/thebrave/myalien/releases) and run
+it (it asks for administrator rights). It installs to `C:\Program Files\MyAlien`: the service, the
+tray icon (started at sign-in for every user, and right away for you), the `myalien` command line, a
+Start menu shortcut and an entry in **Settings → Apps**. Running a newer setup updates in place.
+
+To uninstall, use **Settings → Apps → MyAlien → Uninstall** (or run setup again). Logs and settings
+are kept unless you tick *Also remove logs and settings*; the thermal profile and charging mode stay
+as they are. Setup also takes `/quiet`, `/nostart`, `/uninstall` and `/purge`.
+
+The setup is not code-signed: Windows SmartScreen shows a warning the first time.
 
 ## What it can do
 
@@ -42,13 +55,14 @@ Requires Visual Studio 2022 (Desktop development with C++); CMake ships with it.
 ```
 cmake --preset vs2022
 cmake --build --preset release
-ctest --test-dir build/vs2022 -C Release
+ctest --test-dir build/vs2022 -C MinSizeRel
 ```
 
-Output: `build/vs2022/src/cli/Release/myalien.exe`, `build/vs2022/src/svc/Release/myalien-svc.exe` and
-`build/vs2022/src/tray/Release/myalien-tray.exe` (single self-contained files, static CRT). Install the
-service with `myalien-svc --install` from an elevated prompt, then start `myalien-tray.exe` as yourself
-(see [docs/cli.md](docs/cli.md)).
+The `release` preset builds `MinSizeRel` into `build/vs2022/src/<cli|svc|tray|setup>/MinSizeRel/`:
+`myalien.exe`, `myalien-svc.exe`, `myalien-tray.exe` (single self-contained files, static CRT) and
+`myalien-setup.exe`, which carries the other three. Run the setup to install a build; or, for
+development, install only the service with `myalien-svc --install` from an elevated prompt and start
+`myalien-tray.exe` from the build folder (see [docs/cli.md](docs/cli.md)).
 If `cmake` is not on `PATH`, use a "Developer PowerShell for VS 2022" or VS's bundled
 `Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`.
 
@@ -69,7 +83,8 @@ If `cmake` is not on `PATH`, use a "Developer PowerShell for VS 2022" or VS's bu
 | `src/core` | `myalien-core` static library: WMI wrapper, Dell AWCC thermal interface, Dell BIOS attributes, charge planner, battery, system queries |
 | `src/cli` | `myalien.exe` command line |
 | `src/svc` | `myalien-svc.exe` Windows service (pipe server, thermal monitor) |
-| `src/tray` | `myalien-tray.exe` tray icon, menu, status and Games windows, game mode |
+| `src/tray` | `myalien-tray.exe` tray icon, menu, status and Games windows, game mode, light / dark theme |
+| `src/setup` | `myalien-setup.exe` installer (carries the three programs as resources) |
 | `tests` | Unit tests (charge planner, snapshot wire format, actions, thermal state, game catalog, game mode) |
 | `tools/discovery` | Phase 0 read-only discovery script |
 | `res` | Application icon and version resources |
