@@ -157,6 +157,22 @@ long run(const std::wstring& exe, const std::wstring& args, std::wstring& output
     return static_cast<long>(code);
 }
 
+// Unpacks the bundled myalien-svc.exe to a private temporary folder and runs it with `args`
+// (--install / --uninstall act on the installed copy in Program Files). Returns its exit code.
+long runBundledService(const wchar_t* args, std::wstring& output) {
+    wchar_t tmp[MAX_PATH] = {};
+    GetTempPathW(MAX_PATH, tmp);
+    const std::wstring stage = std::wstring(tmp) + L"MyAlienSetup-" + std::to_wstring(GetCurrentProcessId());
+    CreateDirectoryW(stage.c_str(), nullptr);
+    const std::wstring exe = stage + L"\\myalien-svc.exe";
+    long code = -1;
+    if (writeResource(kResService, exe)) code = run(exe, args, output);
+    else output += L"Cannot unpack the service: " + errorText(GetLastError());
+    retry([&] { return DeleteFileW(exe.c_str()) != 0 || GetLastError() == ERROR_FILE_NOT_FOUND; });
+    RemoveDirectoryW(stage.c_str());
+    return code;
+}
+
 // --- registry -----------------------------------------------------------------------------
 
 bool setString(HKEY root, const wchar_t* key, const wchar_t* name, const std::wstring& value) {
@@ -246,18 +262,8 @@ bool install(const Options& o, Report& rep) {
 
     closeTrays(rep);
 
-    // Payload to a private temporary folder; the service installs itself from there.
-    wchar_t tmp[MAX_PATH] = {};
-    GetTempPathW(MAX_PATH, tmp);
-    const std::wstring stage = std::wstring(tmp) + L"MyAlienSetup-" + std::to_wstring(GetCurrentProcessId());
-    CreateDirectoryW(stage.c_str(), nullptr);
-    const std::wstring svcTmp = stage + L"\\myalien-svc.exe";
-    if (!writeResource(kResService, svcTmp)) return rep.fail(L"Cannot unpack the service: " + errorText(GetLastError()));
-
     std::wstring out;
-    const long code = run(svcTmp, L"--install", out);
-    DeleteFileW(svcTmp.c_str());
-    RemoveDirectoryW(stage.c_str());
+    const long code = runBundledService(L"--install", out);
     if (code != 0) return rep.fail(L"Installing the service failed:\n" + out);
     rep.ok(L"Service installed and started");
 
@@ -311,12 +317,11 @@ bool uninstall(const Options& o, Report& rep) {
 
     closeTrays(rep);  // while the service still runs: the tray restores game mode through it
 
-    const std::wstring svc = dir + L"\\myalien-svc.exe";
-    if (exists(svc)) {
-        std::wstring out;
-        if (run(svc, L"--uninstall", out) != 0) return rep.fail(L"Removing the service failed:\n" + out);
-        rep.ok(L"Service stopped and removed");
-    }
+    // The bundled copy, not the installed one: --uninstall deletes the installed executable,
+    // which cannot happen while it is the running program.
+    std::wstring out;
+    if (runBundledService(L"--uninstall", out) != 0) return rep.fail(L"Removing the service failed:\n" + out);
+    rep.ok(L"Service stopped and removed");
 
     for (const wchar_t* f : {L"\\myalien-tray.exe", L"\\myalien.exe", L"\\myalien-setup.exe"}) {
         const std::wstring p = dir + f;

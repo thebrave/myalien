@@ -290,6 +290,14 @@ int uninstall() {
     const std::wstring dir = programFilesDir();
     if (!dir.empty()) {
         const std::wstring exe = dir + L"\\" + kExeName;
+        if (_wcsicmp(selfPath().c_str(), exe.c_str()) == 0) {
+            // Run from the installed copy: a running program cannot delete itself.
+            if (!MoveFileExW(exe.c_str(), nullptr, MOVEFILE_DELAY_UNTIL_REBOOT))
+                return fail("scheduling the removal of the installed executable"), 1;
+            std::printf("Removed   : %s at the next restart (it is running now; logs kept in %s\\logs)\n",
+                        toUtf8(exe).c_str(), toUtf8(dir).c_str());
+            return 0;
+        }
         if (GetFileAttributesW(exe.c_str()) != INVALID_FILE_ATTRIBUTES &&
             !retry([&] { return DeleteFileW(exe.c_str()) != 0; }))
             return fail("deleting the installed executable"), 1;
