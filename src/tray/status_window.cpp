@@ -526,7 +526,8 @@ LRESULT StatusWindow::handle(UINT msg, WPARAM wp, LPARAM lp) {
         case WM_HSCROLL:
             if (lp) onScroll(reinterpret_cast<HWND>(lp));
             return 0;
-        case WM_NOTIFY: {  // "Project page" link
+        case WM_NOTIFY: {  // dark check boxes, "Project page" link
+            if (LRESULT r = 0; theme::customDraw(lp, r)) return r;
             const auto* hdr = reinterpret_cast<const NMHDR*>(lp);
             if (hdr->idFrom == IDC_LINK && (hdr->code == NM_CLICK || hdr->code == NM_RETURN))
                 ShellExecuteW(hwnd_, L"open", reinterpret_cast<const NMLINK*>(lp)->item.szUrl, nullptr, nullptr,

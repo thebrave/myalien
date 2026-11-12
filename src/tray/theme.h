@@ -31,6 +31,9 @@ bool eraseBackground(HWND window, HDC dc);
 // WM_CTLCOLORSTATIC / BTN / EDIT / LISTBOX: brush to return, or nullptr for the default.
 HBRUSH controlColor(UINT msg, HDC dc);
 
+// WM_NOTIFY from a child: draws check boxes in dark mode. True (with `result` set) when handled.
+bool customDraw(LPARAM lp, LRESULT& result);
+
 // True for a WM_SETTINGCHANGE that means the light / dark theme may have changed.
 bool isThemeChange(UINT msg, LPARAM lp);
 

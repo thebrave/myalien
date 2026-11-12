@@ -3,10 +3,12 @@
 #include <commctrl.h>
 #include <dwmapi.h>
 #include <uxtheme.h>
+#include <vssym32.h>
 
 #include <cwchar>
 #include <initializer_list>
 #include <iterator>
+#include <string>
 
 namespace myalien::tray::theme {
 
@@ -16,6 +18,10 @@ namespace {
 constexpr COLORREF kDarkWindow = RGB(32, 32, 32);
 constexpr COLORREF kDarkControl = RGB(45, 45, 45);
 constexpr COLORREF kDarkText = RGB(240, 240, 240);
+constexpr COLORREF kDarkGrayText = RGB(140, 140, 140);
+constexpr COLORREF kDarkLine = RGB(75, 75, 75);
+
+bool g_darkPainting = false;  // mirrors dark(); read by the subclass and custom draw
 
 HBRUSH windowBrush() {
     static HBRUSH b = CreateSolidBrush(kDarkWindow);
@@ -71,18 +77,61 @@ bool hasStyle(HWND h, LONG_PTR typeMask, std::initializer_list<LONG_PTR> types) 
     return false;
 }
 
+HFONT fontOf(HWND h) { return reinterpret_cast<HFONT>(SendMessageW(h, WM_GETFONT, 0, 0)); }
+
+std::wstring textOf(HWND h) {
+    wchar_t buf[256] = {};
+    GetWindowTextW(h, buf, static_cast<int>(std::size(buf)));
+    return buf;
+}
+
+// Group boxes draw their caption in black under any visual style: in dark mode, paint the frame
+// (a thin grey line) and the caption ourselves. Only the frame and the caption are painted, like
+// the system does, so the controls inside stay visible.
+LRESULT CALLBACK groupBoxProc(HWND h, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR id, DWORD_PTR) {
+    if (msg == WM_PAINT && g_darkPainting) {
+        PAINTSTRUCT ps;
+        HDC dc = BeginPaint(h, &ps);
+        RECT r;
+        GetClientRect(h, &r);
+        HGDIOBJ oldFont = SelectObject(dc, fontOf(h));
+        const std::wstring text = textOf(h);
+        SIZE ts{};
+        GetTextExtentPoint32W(dc, text.c_str(), static_cast<int>(text.size()), &ts);
+        RECT frame{r.left, r.top + ts.cy / 2, r.right, r.bottom};
+        HBRUSH line = CreateSolidBrush(kDarkLine);
+        FrameRect(dc, &frame, line);
+        DeleteObject(line);
+        if (!text.empty()) {
+            const int pad = ts.cy / 4;
+            RECT tr{r.left + 2 * pad, r.top, r.left + 2 * pad + ts.cx + 2 * pad, r.top + ts.cy};
+            FillRect(dc, &tr, windowBrush());
+            SetBkMode(dc, TRANSPARENT);
+            SetTextColor(dc, kDarkText);
+            TextOutW(dc, tr.left + pad, tr.top, text.c_str(), static_cast<int>(text.size()));
+        }
+        SelectObject(dc, oldFont);
+        EndPaint(h, &ps);
+        return 0;
+    }
+    if (msg == WM_NCDESTROY) RemoveWindowSubclass(h, groupBoxProc, id);
+    return DefSubclassProc(h, msg, wp, lp);
+}
+
 void themeControl(HWND h, bool isDark) {
     wchar_t cls[64] = {};
     GetClassNameW(h, cls, static_cast<int>(std::size(cls)));
     if (ux().allowDarkModeForWindow) ux().allowDarkModeForWindow(h, isDark);
 
     if (_wcsicmp(cls, WC_BUTTONW) == 0) {
-        // Check boxes and group boxes draw their text in black whatever the theme: in dark mode
-        // they use classic drawing, which honours WM_CTLCOLORBTN / STATIC.
-        if (hasStyle(h, BS_TYPEMASK, {BS_CHECKBOX, BS_AUTOCHECKBOX, BS_GROUPBOX}))
-            SetWindowTheme(h, isDark ? L"" : nullptr, isDark ? L"" : nullptr);
-        else
+        // Group boxes: painted by groupBoxProc in dark mode. Check boxes keep the dark visual
+        // style for their glyph; their text is drawn by customDraw (the style draws it black).
+        if (hasStyle(h, BS_TYPEMASK, {BS_GROUPBOX})) {
+            SetWindowSubclass(h, groupBoxProc, 1, 0);  // no-op when already subclassed
+            SetWindowTheme(h, nullptr, nullptr);
+        } else {
             SetWindowTheme(h, isDark ? L"DarkMode_Explorer" : nullptr, nullptr);
+        }
     } else if (_wcsicmp(cls, WC_COMBOBOXW) == 0 || _wcsicmp(cls, WC_EDITW) == 0) {
         SetWindowTheme(h, isDark ? L"DarkMode_CFD" : nullptr, nullptr);
     } else if (_wcsicmp(cls, UPDOWN_CLASSW) == 0 || _wcsicmp(cls, WC_SCROLLBARW) == 0) {
@@ -123,6 +172,7 @@ bool dark() { return g_dark; }
 
 void refresh() {
     g_dark = readDark();
+    g_darkPainting = g_dark;
     if (ux().refreshPolicy) ux().refreshPolicy();
     if (ux().flushMenuThemes) ux().flushMenuThemes();
 }
@@ -160,6 +210,62 @@ HBRUSH controlColor(UINT msg, HDC dc) {
 
 bool isThemeChange(UINT msg, LPARAM lp) {
     return msg == WM_SETTINGCHANGE && lp && wcscmp(reinterpret_cast<const wchar_t*>(lp), L"ImmersiveColorSet") == 0;
+}
+
+}  // namespace myalien::tray::theme
+
+namespace myalien::tray::theme {
+
+// Check boxes under the dark visual style: the glyph comes from the style, the text is drawn
+// here in a light colour (the style would draw it black).
+bool customDraw(LPARAM lp, LRESULT& result) {
+    if (!g_darkPainting) return false;
+    const auto* cd = reinterpret_cast<const NMCUSTOMDRAW*>(lp);
+    if (cd->hdr.code != NM_CUSTOMDRAW) return false;
+    HWND h = cd->hdr.hwndFrom;
+    wchar_t cls[32] = {};
+    GetClassNameW(h, cls, static_cast<int>(std::size(cls)));
+    if (_wcsicmp(cls, WC_BUTTONW) != 0 || !hasStyle(h, BS_TYPEMASK, {BS_CHECKBOX, BS_AUTOCHECKBOX})) return false;
+    if (cd->dwDrawStage != CDDS_PREPAINT) {
+        result = CDRF_DODEFAULT;
+        return true;
+    }
+
+    HDC dc = cd->hdc;
+    RECT r = cd->rc;
+    FillRect(dc, &r, windowBrush());
+    const bool checked = SendMessageW(h, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    const bool enabled = IsWindowEnabled(h) != FALSE;
+    const bool hot = (cd->uItemState & CDIS_HOT) != 0, pressed = (cd->uItemState & CDIS_SELECTED) != 0;
+    int state = checked ? CBS_CHECKEDNORMAL : CBS_UNCHECKEDNORMAL;
+    if (!enabled) state = checked ? CBS_CHECKEDDISABLED : CBS_UNCHECKEDDISABLED;
+    else if (pressed) state = checked ? CBS_CHECKEDPRESSED : CBS_UNCHECKEDPRESSED;
+    else if (hot) state = checked ? CBS_CHECKEDHOT : CBS_UNCHECKEDHOT;
+
+    SIZE box{13, 13};
+    if (HTHEME th = OpenThemeData(h, L"Button")) {
+        GetThemePartSize(th, dc, BP_CHECKBOX, state, nullptr, TS_DRAW, &box);
+        RECT br{r.left, r.top + (r.bottom - r.top - box.cy) / 2, r.left + box.cx, 0};
+        br.bottom = br.top + box.cy;
+        DrawThemeBackground(th, dc, BP_CHECKBOX, state, &br, nullptr);
+        CloseThemeData(th);
+    }
+    const std::wstring text = textOf(h);
+    HGDIOBJ oldFont = SelectObject(dc, fontOf(h));
+    RECT tr{r.left + box.cx + box.cx / 2, r.top, r.right, r.bottom};
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, enabled ? kDarkText : kDarkGrayText);
+    DrawTextW(dc, text.c_str(), static_cast<int>(text.size()), &tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    if ((cd->uItemState & CDIS_FOCUS) && !(SendMessageW(h, WM_QUERYUISTATE, 0, 0) & UISF_HIDEFOCUS)) {
+        RECT fr{};
+        DrawTextW(dc, text.c_str(), static_cast<int>(text.size()), &fr, DT_LEFT | DT_SINGLELINE | DT_CALCRECT);
+        OffsetRect(&fr, tr.left, tr.top + ((tr.bottom - tr.top) - (fr.bottom - fr.top)) / 2);
+        InflateRect(&fr, 1, 1);
+        DrawFocusRect(dc, &fr);
+    }
+    SelectObject(dc, oldFont);
+    result = CDRF_SKIPDEFAULT;
+    return true;
 }
 
 }  // namespace myalien::tray::theme
